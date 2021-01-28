@@ -1,4 +1,6 @@
 ## Learn me some Vulkan for Great Good
+![vulkan logo](https://techgage.com/wp-content/uploads/2018/03/Khronos-Vulkan-Logo-680x656.png)
+
 Vulkan? What is Vulkan? How do I image? What is image?
 
 ### Progress
@@ -34,3 +36,8 @@ Vulkan? What is Vulkan? How do I image? What is image?
 | 27             | [27_model_loading.rs](./src/tutorials/27_model_loading.rs)   | [Link](https://vulkan-tutorial.com/Loading_models)           | Test this example in release mode.                           | ❌ |
 | 28             | [28_mipmapping.rs](./src/tutorials/28_mipmapping.rs)         | [Link](https://vulkan-tutorial.com/Generating_Mipmaps)       | Test this example in release mode.                           | ❌ |
 | 29             | [29_multisampling.rs](./src/tutorials/29_multisampling.rs)   | [Link](https://vulkan-tutorial.com/Multisampling)            | Test this example in release mode.                           | ❌ |
+
+
+## References
+[uknknowne/vulkan-tutorial](https://github.com/unknownue/vulkan-tutorial-rust)
+[vulkan-tutorial.com](https://vulkan-tutorial.com)

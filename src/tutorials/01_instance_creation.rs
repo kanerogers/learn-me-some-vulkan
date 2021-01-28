@@ -3,7 +3,6 @@ use ash::{
     vk, Entry, Instance,
 };
 use std::ffi::{CStr, CString};
-use std::ptr;
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -62,7 +61,7 @@ impl HelloTriangleApplication {
             .unwrap()
     }
 
-    fn main_loop(mut self, event_loop: EventLoop<()>, window: Window) -> () {
+    fn main_loop(self, event_loop: EventLoop<()>, window: Window) -> () {
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
 
@@ -88,6 +87,6 @@ impl Drop for HelloTriangleApplication {
 fn main() {
     let event_loop = EventLoop::new();
     let window = HelloTriangleApplication::init_window(&event_loop);
-    let mut app = HelloTriangleApplication::new(&window);
+    let app = HelloTriangleApplication::new(&window);
     app.main_loop(event_loop, window);
 }

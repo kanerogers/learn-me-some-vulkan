@@ -1,9 +1,3 @@
-use ash::{
-    version::{EntryV1_0, InstanceV1_0},
-    vk, Entry, Instance,
-};
-use std::ffi::CString;
-use std::ptr;
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -11,50 +5,11 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-struct HelloTriangleApplication {
-    instance: Instance,
-}
+struct HelloTriangleApplication {}
 
 impl HelloTriangleApplication {
-    pub fn new(window: &Window) -> HelloTriangleApplication {
-        HelloTriangleApplication {
-            instance: unsafe { Self::init_vulkan(window) },
-        }
-    }
-
-    pub unsafe fn init_vulkan(window: &Window) -> Instance {
-        let app_name = CString::new("Hello Triangle").unwrap();
-        let surface_extensions = ash_window::enumerate_required_extensions(window).unwrap();
-        let extension_names_raw = surface_extensions
-            .iter()
-            .map(|ext| ext.as_ptr())
-            .collect::<Vec<_>>();
-
-        let entry = Entry::new().unwrap();
-        let mut extensions_count = 0;
-        entry.fp_v1_0().enumerate_instance_extension_properties(
-            ptr::null(),
-            &mut extensions_count,
-            ptr::null_mut(),
-        );
-        println!("Retrieved {} extensions", extensions_count);
-        let mut data = Vec::with_capacity(extensions_count as usize);
-        entry.fp_v1_0().enumerate_instance_extension_properties(
-            ptr::null(),
-            &mut extensions_count,
-            data.as_mut_ptr(),
-        );
-        data.set_len(extensions_count as usize);
-        println!("{:?} extensions", data);
-
-        let app_info = vk::ApplicationInfo::builder()
-            .application_name(&app_name)
-            .api_version(vk::make_version(1, 0, 0));
-        let create_info = vk::InstanceCreateInfo::builder()
-            .application_info(&app_info)
-            .enabled_extension_names(&extension_names_raw);
-
-        entry.create_instance(&create_info, None).unwrap()
+    pub fn new() -> HelloTriangleApplication {
+        HelloTriangleApplication {}
     }
 
     pub fn init_window(event_loop: &EventLoop<()>) -> Window {
@@ -65,7 +20,7 @@ impl HelloTriangleApplication {
             .unwrap()
     }
 
-    fn main_loop(mut self, event_loop: EventLoop<()>, window: Window) -> () {
+    fn main_loop(self, event_loop: EventLoop<()>, window: Window) -> () {
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
 
@@ -80,17 +35,9 @@ impl HelloTriangleApplication {
     }
 }
 
-impl Drop for HelloTriangleApplication {
-    fn drop(&mut self) {
-        unsafe {
-            self.instance.destroy_instance(None);
-        }
-    }
-}
-
 fn main() {
     let event_loop = EventLoop::new();
     let window = HelloTriangleApplication::init_window(&event_loop);
-    let mut app = HelloTriangleApplication::new(&window);
+    let app = HelloTriangleApplication::new();
     app.main_loop(event_loop, window);
 }

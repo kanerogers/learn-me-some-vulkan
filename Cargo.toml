@@ -22,4 +22,8 @@ path = "src/tutorials/00_base_code.rs"
 [[bin]]
 name = "01"
 path = "src/tutorials/01_instance_creation.rs"
+
+[[bin]]
+name = "02"
+path = "src/tutorials/02_validation_layers.rs"
 # ------------------------------------------------------------

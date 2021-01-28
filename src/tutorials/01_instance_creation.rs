@@ -2,7 +2,7 @@ use ash::{
     version::{EntryV1_0, InstanceV1_0},
     vk, Entry, Instance,
 };
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::ptr;
 use winit::{
     dpi::LogicalSize,
@@ -25,27 +25,24 @@ impl HelloTriangleApplication {
     pub unsafe fn init_vulkan(window: &Window) -> Instance {
         let app_name = CString::new("Hello Triangle").unwrap();
         let surface_extensions = ash_window::enumerate_required_extensions(window).unwrap();
-        let extension_names_raw = surface_extensions
-            .iter()
-            .map(|ext| ext.as_ptr())
-            .collect::<Vec<_>>();
 
         let entry = Entry::new().unwrap();
-        let mut extensions_count = 0;
-        entry.fp_v1_0().enumerate_instance_extension_properties(
-            ptr::null(),
-            &mut extensions_count,
-            ptr::null_mut(),
-        );
-        println!("Retrieved {} extensions", extensions_count);
-        let mut data = Vec::with_capacity(extensions_count as usize);
-        entry.fp_v1_0().enumerate_instance_extension_properties(
-            ptr::null(),
-            &mut extensions_count,
-            data.as_mut_ptr(),
-        );
-        data.set_len(extensions_count as usize);
-        println!("{:?} extensions", data);
+        let supported_extensions = entry
+            .enumerate_instance_extension_properties()
+            .expect("Unable to enumerate instance extension properties")
+            .iter()
+            .map(|e| CStr::from_ptr(e.extension_name.as_ptr()))
+            .collect::<Vec<_>>();
+
+        let mut extension_names_raw = Vec::new();
+        for extension in surface_extensions {
+            assert!(
+                supported_extensions.contains(&extension),
+                "Unsupported extension: {:?}",
+                extension
+            );
+            extension_names_raw.push(extension.as_ptr())
+        }
 
         let app_info = vk::ApplicationInfo::builder()
             .application_name(&app_name)

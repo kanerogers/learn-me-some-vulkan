@@ -1,7 +1,7 @@
 use ash::{
     extensions::ext,
-    version::{EntryV1_0, InstanceV1_0},
-    vk, Entry, Instance,
+    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+    vk, Device, Entry, Instance,
 };
 use std::ffi::{CStr, CString};
 use winit::{
@@ -17,6 +17,8 @@ struct HelloTriangleApplication {
     debug_utils: Option<ext::DebugUtils>,
     debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
     physical_device: vk::PhysicalDevice,
+    device: Device,
+    graphics_queue: vk::Queue,
 }
 
 struct QueueFamilyIndices {
@@ -27,6 +29,7 @@ impl HelloTriangleApplication {
     pub fn new(window: &Window) -> HelloTriangleApplication {
         let (instance, _entry, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
         let physical_device = pick_physical_device(&instance);
+        let (device, graphics_queue) = unsafe { create_logical_device(&instance, physical_device) };
 
         HelloTriangleApplication {
             instance,
@@ -34,6 +37,8 @@ impl HelloTriangleApplication {
             debug_utils,
             debug_messenger,
             physical_device,
+            device,
+            graphics_queue,
         }
     }
 
@@ -86,6 +91,7 @@ impl Drop for HelloTriangleApplication {
                     d.destroy_debug_utils_messenger(m, None);
                 })
             });
+            self.device.destroy_device(None);
             self.instance.destroy_instance(None);
         }
     }
@@ -112,6 +118,34 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleA
             _ => (),
         }
     });
+}
+
+unsafe fn create_logical_device(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> (Device, vk::Queue) {
+    let indices = find_queue_families(instance, physical_device);
+    let queue_priorities = [1.0];
+    let queue_create_info = vk::DeviceQueueCreateInfo::builder()
+        .queue_priorities(&queue_priorities)
+        .queue_family_index(indices.graphics_family.unwrap())
+        .build();
+
+    let queue_create_infos = &[queue_create_info];
+
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+
+    let device_create_info = vk::DeviceCreateInfo::builder()
+        .queue_create_infos(queue_create_infos)
+        .enabled_features(&physical_device_features);
+
+    let device = instance
+        .create_device(physical_device, &device_create_info, None)
+        .unwrap();
+
+    let queue = device.get_device_queue(indices.graphics_family.unwrap(), 0);
+
+    (device, queue)
 }
 
 #[cfg(debug_assertions)]

@@ -12,6 +12,7 @@ use winit::{
 };
 
 struct HelloTriangleApplication {
+    _entry: Entry,
     instance: Instance,
     debug_utils: Option<ext::DebugUtils>,
     debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
@@ -24,11 +25,13 @@ struct QueueFamilyIndices {
 
 impl HelloTriangleApplication {
     pub fn new(window: &Window) -> HelloTriangleApplication {
-        let (instance, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
+        let (instance, _entry, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
+        println!("Picking a physical device..");
         let physical_device = pick_physical_device(&instance);
 
         HelloTriangleApplication {
             instance,
+            _entry,
             debug_utils,
             debug_messenger,
             physical_device,
@@ -39,6 +42,7 @@ impl HelloTriangleApplication {
         window: &Window,
     ) -> (
         Instance,
+        Entry,
         Option<ext::DebugUtils>,
         Option<vk::DebugUtilsMessengerEXT>,
     ) {
@@ -63,7 +67,7 @@ impl HelloTriangleApplication {
         let (debug_utils, messenger) =
             setup_debug_messenger(&entry, &instance, &debug_messenger_info);
 
-        (instance, debug_utils, messenger)
+        (instance, entry, debug_utils, messenger)
     }
 
     pub fn init_window(event_loop: &EventLoop<()>) -> Window {
@@ -195,8 +199,11 @@ unsafe fn find_queue_families(
 
 fn pick_physical_device(instance: &Instance) -> vk::PhysicalDevice {
     unsafe {
+        println!("Getting devices..");
         let devices = instance.enumerate_physical_devices().unwrap();
+        println!("Devices: {:?}", devices);
         for device in devices {
+            println!("Checking if {:?} is suitable..", device);
             if is_device_suitable(device, instance) {
                 return device;
             }
@@ -272,9 +279,9 @@ unsafe extern "system" fn debug_messenger_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
     _p_user_data: *mut std::ffi::c_void,
 ) -> vk::Bool32 {
-    println!(
-        "[VULKAN]: {:?}",
-        CStr::from_ptr((*p_callback_data).p_message)
-    );
+    // println!(
+    //     "[VULKAN]: {:?}",
+    //     CStr::from_ptr((*p_callback_data).p_message)
+    // );
     return vk::FALSE;
 }

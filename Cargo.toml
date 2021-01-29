@@ -30,4 +30,8 @@ path = "src/tutorials/02_validation_layers.rs"
 [[bin]]
 name = "03"
 path = "src/tutorials/03_physical_device_selection.rs"
+
+[[bin]]
+name = "04"
+path = "src/tutorials/04_logical_device.rs"
 # ------------------------------------------------------------

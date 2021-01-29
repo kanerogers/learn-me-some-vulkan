@@ -13,20 +13,33 @@ use winit::{
 
 struct HelloTriangleApplication {
     instance: Instance,
+    debug_utils: Option<ext::DebugUtils>,
+    debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
 }
 
 impl HelloTriangleApplication {
     pub fn new(window: &Window) -> HelloTriangleApplication {
+        let (instance, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
         HelloTriangleApplication {
-            instance: unsafe { Self::init_vulkan(window) },
+            instance,
+            debug_utils,
+            debug_messenger,
         }
     }
 
-    pub unsafe fn init_vulkan(window: &Window) -> Instance {
+    pub unsafe fn init_vulkan(
+        window: &Window,
+    ) -> (
+        Instance,
+        Option<ext::DebugUtils>,
+        Option<vk::DebugUtilsMessengerEXT>,
+    ) {
         let app_name = CString::new("Hello Triangle").unwrap();
         let entry = Entry::new().unwrap();
         let extension_names = get_required_extensions(&window, &entry);
         let layer_names = get_layer_names(&entry);
+
+        let mut debug_messenger_info = get_debug_messenger_create_info();
 
         let app_info = vk::ApplicationInfo::builder()
             .application_name(&app_name)
@@ -34,9 +47,15 @@ impl HelloTriangleApplication {
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
-            .enabled_layer_names(&layer_names);
+            .enabled_layer_names(&layer_names)
+            .push_next(&mut debug_messenger_info);
 
-        entry.create_instance(&create_info, None).unwrap()
+        let instance = entry.create_instance(&create_info, None).unwrap();
+
+        let (debug_utils, messenger) =
+            setup_debug_messenger(&entry, &instance, &debug_messenger_info);
+
+        (instance, debug_utils, messenger)
     }
 
     pub fn init_window(event_loop: &EventLoop<()>) -> Window {
@@ -46,35 +65,42 @@ impl HelloTriangleApplication {
             .build(event_loop)
             .unwrap()
     }
-
-    fn main_loop(self, event_loop: EventLoop<()>, window: Window) -> () {
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Wait;
-
-            match event {
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    window_id,
-                } if window_id == window.id() => *control_flow = ControlFlow::Exit,
-                _ => (),
-            }
-        });
-    }
 }
 
 impl Drop for HelloTriangleApplication {
     fn drop(&mut self) {
         unsafe {
+            self.debug_messenger.map(|m| {
+                self.debug_utils.as_ref().map(|d| {
+                    d.destroy_debug_utils_messenger(m, None);
+                })
+            });
             self.instance.destroy_instance(None);
         }
     }
+}
+
+fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleApplication) -> () {
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } if window_id == window.id() => {
+                *control_flow = ControlFlow::Exit;
+            }
+            _ => (),
+        }
+    });
 }
 
 fn main() {
     let event_loop = EventLoop::new();
     let window = HelloTriangleApplication::init_window(&event_loop);
     let app = HelloTriangleApplication::new(&window);
-    app.main_loop(event_loop, window);
+    main_loop(event_loop, window, app);
 }
 
 #[cfg(debug_assertions)]
@@ -126,6 +152,44 @@ fn get_required_extensions(window: &Window, entry: &Entry) -> Vec<*const i8> {
     return extension_names_raw;
 }
 
+fn get_debug_messenger_create_info() -> vk::DebugUtilsMessengerCreateInfoEXTBuilder<'static> {
+    let message_severity = vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
+        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+        | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR;
+    let message_type = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE;
+    vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        .message_severity(message_severity)
+        .message_type(message_type)
+        .pfn_user_callback(Some(debug_messenger_callback))
+}
+
+#[cfg(debug_assertions)]
+fn setup_debug_messenger(
+    entry: &Entry,
+    instance: &Instance,
+    info: &vk::DebugUtilsMessengerCreateInfoEXT,
+) -> (Option<ext::DebugUtils>, Option<vk::DebugUtilsMessengerEXT>) {
+    let debug_utils = ext::DebugUtils::new(entry, instance);
+
+    let messenger = unsafe {
+        debug_utils
+            .create_debug_utils_messenger(info, None)
+            .unwrap()
+    };
+
+    (Some(debug_utils), Some(messenger))
+}
+
+#[cfg(not(debug_assertions))]
+fn setup_debug_messenger(
+    entry: &Entry,
+    instance: &Instance,
+) -> (Option<ext::DebugUtils>, Option<vk::DebugUtilsMessengerEXT>) {
+    (None, None)
+}
+
 fn get_layer_names(entry: &Entry) -> Vec<*const i8> {
     let mut validation_layers_raw = Vec::new();
     if !should_add_validation_layers() {
@@ -150,4 +214,18 @@ fn get_layer_names(entry: &Entry) -> Vec<*const i8> {
     }
 
     return validation_layers_raw;
+}
+
+#[cfg(debug_assertions)]
+unsafe extern "system" fn debug_messenger_callback(
+    _message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    _message_types: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _p_user_data: *mut std::ffi::c_void,
+) -> vk::Bool32 {
+    println!(
+        "[VULKAN]: {:?}",
+        CStr::from_ptr((*p_callback_data).p_message)
+    );
+    return vk::FALSE;
 }

@@ -26,4 +26,8 @@ path = "src/tutorials/01_instance_creation.rs"
 [[bin]]
 name = "02"
 path = "src/tutorials/02_validation_layers.rs"
+
+[[bin]]
+name = "03"
+path = "src/tutorials/03_physical_device_selection.rs"
 # ------------------------------------------------------------

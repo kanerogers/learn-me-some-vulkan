@@ -14,6 +14,17 @@ struct HelloTriangleApplication {
     instance: Instance,
 }
 
+#[cfg(debug_assertions)]
+fn get_validation_layers() -> Vec<&'static CStr> {
+    let validation_layer = CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0").unwrap();
+    return vec![validation_layer];
+}
+
+#[cfg(not(debug_assertions))]
+fn get_validation_layers() -> Vec<&'static CStr> {
+    return Vec::new();
+}
+
 impl HelloTriangleApplication {
     pub fn new(window: &Window) -> HelloTriangleApplication {
         HelloTriangleApplication {
@@ -43,12 +54,32 @@ impl HelloTriangleApplication {
             extension_names_raw.push(extension.as_ptr())
         }
 
+        let validation_layers = get_validation_layers();
+        let supported_layers = entry
+            .enumerate_instance_layer_properties()
+            .expect("Unable to enumerate instance layer properties")
+            .iter()
+            .map(|l| CStr::from_ptr(l.layer_name.as_ptr()))
+            .collect::<Vec<_>>();
+
+        let mut validation_layers_raw = Vec::new();
+
+        for layer in validation_layers {
+            assert!(
+                supported_layers.contains(&layer),
+                "Unsupported layer: {:?}",
+                layer
+            );
+            validation_layers_raw.push(layer.as_ptr())
+        }
+
         let app_info = vk::ApplicationInfo::builder()
             .application_name(&app_name)
             .api_version(vk::make_version(1, 0, 0));
         let create_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)
-            .enabled_extension_names(&extension_names_raw);
+            .enabled_extension_names(&extension_names_raw)
+            .enabled_layer_names(&validation_layers_raw);
 
         entry.create_instance(&create_info, None).unwrap()
     }

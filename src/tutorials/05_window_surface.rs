@@ -19,27 +19,38 @@ struct HelloTriangleApplication {
     _physical_device: vk::PhysicalDevice,
     device: Device,
     _graphics_queue: vk::Queue,
+    _present_queue: vk::Queue,
 }
 
 struct QueueFamilyIndices {
     graphics_family: Option<u32>,
+    present_family: Option<u32>,
+}
+
+impl QueueFamilyIndices {
+    fn is_complete(&self) -> bool {
+        self.graphics_family.is_some() && self.present_family.is_some()
+    }
 }
 
 impl HelloTriangleApplication {
     pub fn new(window: &Window) -> HelloTriangleApplication {
-        let (instance, _entry, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
-        let _physical_device = pick_physical_device(&instance);
-        let (device, _graphics_queue) =
-            unsafe { create_logical_device(&instance, _physical_device) };
+        let (instance, entry, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(window) };
+        let surface =
+            unsafe { ash_window::create_surface(&entry, &instance, window, None).unwrap() };
+        let (physical_device, indices) = pick_physical_device(&instance, &entry, surface);
+        let (device, graphics_queue, present_queue) =
+            unsafe { create_logical_device(&instance, physical_device, indices) };
 
         HelloTriangleApplication {
             instance,
-            _entry,
+            _entry: entry,
             debug_utils,
             debug_messenger,
-            _physical_device,
+            _physical_device: physical_device,
             device,
-            _graphics_queue,
+            _graphics_queue: graphics_queue,
+            _present_queue: present_queue,
         }
     }
 
@@ -121,32 +132,42 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleA
     });
 }
 
-unsafe fn create_logical_device(
+unsafe fn create_logical_device<'a>(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
-) -> (Device, vk::Queue) {
-    let indices = find_queue_families(instance, physical_device);
+    indices: QueueFamilyIndices,
+) -> (Device, vk::Queue, vk::Queue) {
     let queue_priorities = [1.0];
-    let queue_create_info = vk::DeviceQueueCreateInfo::builder()
+    let graphics_queue_create_info = vk::DeviceQueueCreateInfo::builder()
         .queue_priorities(&queue_priorities)
         .queue_family_index(indices.graphics_family.unwrap())
         .build();
 
-    let queue_create_infos = &[queue_create_info];
+
+    let mut queue_create_infos = vec![graphics_queue_create_info];
+
+    if indices.graphics_family != indices.present_family {
+        let present_queue_create_info = vk::DeviceQueueCreateInfo::builder()
+            .queue_priorities(&queue_priorities)
+            .queue_family_index(indices.present_family.unwrap())
+            .build();
+        queue_create_infos.push(present_queue_create_info);
+    }
 
     let physical_device_features = vk::PhysicalDeviceFeatures::builder();
 
     let device_create_info = vk::DeviceCreateInfo::builder()
-        .queue_create_infos(queue_create_infos)
+        .queue_create_infos(&queue_create_infos[..])
         .enabled_features(&physical_device_features);
 
     let device = instance
         .create_device(physical_device, &device_create_info, None)
         .unwrap();
 
-    let queue = device.get_device_queue(indices.graphics_family.unwrap(), 0);
+    let graphics_queue = device.get_device_queue(indices.graphics_family.unwrap(), 0);
+    let present_queue = device.get_device_queue(indices.present_family.unwrap(), 0);
 
-    (device, queue)
+    (device, graphics_queue, present_queue)
 }
 
 #[cfg(debug_assertions)]
@@ -199,8 +220,9 @@ fn get_required_extensions(window: &Window, entry: &Entry) -> Vec<*const i8> {
 }
 
 fn get_debug_messenger_create_info() -> vk::DebugUtilsMessengerCreateInfoEXTBuilder<'static> {
-    let message_severity = vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
-        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+    let message_severity = 
+    // vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
+        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
         | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR;
     let message_type = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
         | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
@@ -214,42 +236,69 @@ fn get_debug_messenger_create_info() -> vk::DebugUtilsMessengerCreateInfoEXTBuil
 unsafe fn find_queue_families(
     instance: &Instance,
     device: vk::PhysicalDevice,
+    entry: &Entry,
+    surface_khr: vk::SurfaceKHR,
 ) -> QueueFamilyIndices {
-    let mut graphics_family = None;
+    let mut indices = QueueFamilyIndices {
+        graphics_family: None,
+        present_family: None,
+    };
+    let surface = ash::extensions::khr::Surface::new(entry, instance);
 
     for (i, queue) in instance
         .get_physical_device_queue_family_properties(device)
         .iter()
         .enumerate()
     {
+        let i = i as u32;
         if queue.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-            graphics_family = Some(i as u32);
+            indices.graphics_family = Some(i);
+        }
+        if surface
+            .get_physical_device_surface_support(device, i, surface_khr)
+            .unwrap()
+        {
+            indices.present_family = Some(i);
+        }
+        if indices.is_complete() {
             break;
         }
     }
 
-    QueueFamilyIndices { graphics_family }
+    indices
 }
 
-fn pick_physical_device(instance: &Instance) -> vk::PhysicalDevice {
+fn pick_physical_device(
+    instance: &Instance,
+    entry: &Entry,
+    surface: vk::SurfaceKHR,
+) -> (vk::PhysicalDevice, QueueFamilyIndices) {
     unsafe {
         let devices = instance.enumerate_physical_devices().unwrap();
         for device in devices {
-            if is_device_suitable(device, instance) {
-                return device;
+            let (suitable, indices) = is_device_suitable(device, instance, entry, surface);
+            if suitable {
+                return (device, indices);
             }
         }
         panic!("Failed to find a suitable device");
     }
 }
 
-unsafe fn is_device_suitable(device: vk::PhysicalDevice, instance: &Instance) -> bool {
+unsafe fn is_device_suitable(
+    device: vk::PhysicalDevice,
+    instance: &Instance,
+    entry: &Entry,
+    surface: vk::SurfaceKHR,
+) -> (bool, QueueFamilyIndices) {
     let properties = instance.get_physical_device_properties(device);
     let features = instance.get_physical_device_features(device);
-    let indices = find_queue_families(&instance, device);
-    properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
+    let indices = find_queue_families(instance, device, entry, surface);
+    let suitable = properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
         && features.geometry_shader == vk::TRUE
-        && indices.graphics_family.is_some()
+        && indices.graphics_family.is_some();
+
+    (suitable, indices)
 }
 
 #[cfg(debug_assertions)]

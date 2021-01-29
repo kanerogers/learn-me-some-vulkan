@@ -16,7 +16,7 @@ struct HelloTriangleApplication {
     instance: Instance,
     debug_utils: Option<ext::DebugUtils>,
     debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
-    physical_device: vk::PhysicalDevice,
+    _physical_device: vk::PhysicalDevice,
 }
 
 struct QueueFamilyIndices {
@@ -33,7 +33,7 @@ impl HelloTriangleApplication {
             _entry,
             debug_utils,
             debug_messenger,
-            physical_device,
+            _physical_device: physical_device,
         }
     }
 

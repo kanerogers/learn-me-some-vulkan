@@ -46,9 +46,9 @@ dependencies = [
 
 [[package]]
 name = "ash-window"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f6d9020937202fd398baa77f84ce12f951fbc892d4a63ff57bc5617a30cc5bd"
+checksum = "905c4ca25f752e7ab3c3e8f2882625f876e4c3ea5feffbc83f81d697e043afd6"
 dependencies = [
  "ash",
  "raw-window-handle",

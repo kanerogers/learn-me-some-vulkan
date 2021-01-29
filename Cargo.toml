@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 ash = "0.31.0"
-ash-window = "0.4"
+ash-window = "0.5"
 cgmath = "0.17.0"
 image = "0.22"
 memoffset = "0.5.1"
@@ -34,4 +34,8 @@ path = "src/tutorials/03_physical_device_selection.rs"
 [[bin]]
 name = "04"
 path = "src/tutorials/04_logical_device.rs"
+
+[[bin]]
+name = "05"
+path = "src/tutorials/05_window_surface.rs"
 # ------------------------------------------------------------

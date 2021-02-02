@@ -38,4 +38,8 @@ path = "src/tutorials/04_logical_device.rs"
 [[bin]]
 name = "05"
 path = "src/tutorials/05_window_surface.rs"
+
+[[bin]]
+name = "06"
+path = "src/tutorials/06_swap_chain_creation.rs"
 # ------------------------------------------------------------

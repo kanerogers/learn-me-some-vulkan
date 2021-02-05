@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use ash::{
     extensions::khr,
     extensions::ext,
@@ -14,6 +17,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+use byte_slice_cast::AsSliceOf;
 
 #[derive(Clone, Debug)]
 struct QueueFamilyIndices {
@@ -225,7 +229,38 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleA
 }
 
 // Graphics Pipeline
-fn create_graphics_pipeline() { }
+fn create_graphics_pipeline(device: &Device) { 
+    let vert_shader_code = include_bytes!("./shaders/shader.vert.spv");
+    let frag_shader_code = include_bytes!("./shaders/shader.frag.spv");
+
+    let vertex_shader_module = create_shader_module(device, vert_shader_code);
+    let frag_shader_module = create_shader_module(device, frag_shader_code);
+    let name = CString::new("main").unwrap();
+
+    let vertex_shader_stage_info = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .module(vertex_shader_module)
+        .name(name.as_c_str());
+
+    let frag_shader_stage_info = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .module(frag_shader_module)
+        .name(name.as_c_str());
+    
+    let shader_stages = [vertex_shader_stage_info, frag_shader_stage_info]; 
+
+
+    // Cleanup
+    unsafe { device.destroy_shader_module(vertex_shader_module, None) } ;
+    unsafe { device.destroy_shader_module(frag_shader_module, None) } ;
+}
+
+fn create_shader_module(device: &Device, bytes: &[u8]) -> vk::ShaderModule {
+    let create_info = vk::ShaderModuleCreateInfo::builder()
+        .code(bytes.as_slice_of::<u32>().unwrap());
+
+    unsafe { device.create_shader_module(&create_info, None).expect("Unable to create shader module") }
+}
 
 // Logical Device
 unsafe fn create_logical_device<'a>(

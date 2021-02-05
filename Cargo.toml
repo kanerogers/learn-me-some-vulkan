@@ -13,6 +13,7 @@ memoffset = "0.5.1"
 num = "0.2"
 tobj = "0.1.10"
 winit = "0.20.0"
+byte-slice-cast = "1.0"
 
 # tutorial examples shortcut ---------------------------------
 [[bin]]

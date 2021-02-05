@@ -7,13 +7,13 @@ version = "0.1.0"
 [dependencies]
 ash = "0.31.0"
 ash-window = "0.5"
+byte-slice-cast = "1.0"
 cgmath = "0.17.0"
 image = "0.22"
 memoffset = "0.5.1"
 num = "0.2"
 tobj = "0.1.10"
 winit = "0.20.0"
-byte-slice-cast = "1.0"
 
 # tutorial examples shortcut ---------------------------------
 [[bin]]
@@ -55,4 +55,8 @@ path = "src/tutorials/08_graphics_pipeline.rs"
 [[bin]]
 name = "09"
 path = "src/tutorials/09_shader_modules.rs"
+
+[[bin]]
+name = "10"
+path = "src/tutorials/10_fixed_functions.rs"
 # ------------------------------------------------------------

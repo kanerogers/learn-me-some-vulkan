@@ -50,4 +50,8 @@ path = "src/tutorials/07_image_view.rs"
 [[bin]]
 name = "08"
 path = "src/tutorials/08_graphics_pipeline.rs"
+
+[[bin]]
+name = "09"
+path = "src/tutorials/09_shader_modules.rs"
 # ------------------------------------------------------------

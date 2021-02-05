@@ -97,9 +97,9 @@ struct HelloTriangleApplication {
     _graphics_queue: vk::Queue,
     _present_queue: vk::Queue,
     swap_chain: vk::SwapchainKHR,
-    swap_chain_images: Vec<vk::Image>,
-    swap_chain_image_format: vk::Format,
-    swap_chain_extent: vk::Extent2D,
+    _swap_chain_images: Vec<vk::Image>,
+    _swap_chain_image_format: vk::Format,
+    _swap_chain_extent: vk::Extent2D,
     swap_chain_image_views: Vec<vk::ImageView>,
 }
 
@@ -125,9 +125,9 @@ impl HelloTriangleApplication {
             _graphics_queue: graphics_queue,
             _present_queue: present_queue,
             swap_chain,
-            swap_chain_images,
-            swap_chain_image_format: format,
-            swap_chain_extent: extent,
+            _swap_chain_images: swap_chain_images,
+            _swap_chain_image_format: format,
+            _swap_chain_extent: extent,
             swap_chain_image_views
         }
     }

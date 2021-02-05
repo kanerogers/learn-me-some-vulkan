@@ -46,4 +46,8 @@ path = "src/tutorials/06_swap_chain_creation.rs"
 [[bin]]
 name = "07"
 path = "src/tutorials/07_image_view.rs"
+
+[[bin]]
+name = "08"
+path = "src/tutorials/08_graphics_pipeline.rs"
 # ------------------------------------------------------------

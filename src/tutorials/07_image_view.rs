@@ -97,9 +97,10 @@ struct HelloTriangleApplication {
     _graphics_queue: vk::Queue,
     _present_queue: vk::Queue,
     swap_chain: vk::SwapchainKHR,
-    _swap_chain_images: Vec<vk::Image>,
-    _swap_chain_image_format: vk::Format,
-    _swap_chain_extent: vk::Extent2D,
+    swap_chain_images: Vec<vk::Image>,
+    swap_chain_image_format: vk::Format,
+    swap_chain_extent: vk::Extent2D,
+    swap_chain_image_views: Vec<vk::ImageView>,
 }
 
 impl HelloTriangleApplication {
@@ -111,7 +112,8 @@ impl HelloTriangleApplication {
         let (device, graphics_queue, present_queue) =
             unsafe { create_logical_device(&instance, physical_device, indices) };
         let (swap_chain, format, extent) = create_swap_chain(&instance, &entry, physical_device, surface, window, &device);
-        let swap_chain_images = get_swap_chain_images(&instance, &device, swap_chain);
+        let mut swap_chain_images = get_swap_chain_images(&instance, &device, swap_chain);
+        let swap_chain_image_views = create_image_views(&mut swap_chain_images, format, &device);
 
         HelloTriangleApplication {
             instance,
@@ -123,9 +125,10 @@ impl HelloTriangleApplication {
             _graphics_queue: graphics_queue,
             _present_queue: present_queue,
             swap_chain,
-            _swap_chain_images: swap_chain_images,
-            _swap_chain_image_format: format,
-            _swap_chain_extent: extent
+            swap_chain_images,
+            swap_chain_image_format: format,
+            swap_chain_extent: extent,
+            swap_chain_image_views
         }
     }
 
@@ -173,6 +176,11 @@ impl HelloTriangleApplication {
 impl Drop for HelloTriangleApplication {
     fn drop(&mut self) {
         unsafe {
+            for view in self.swap_chain_image_views.drain(..) {
+                self.device.destroy_image_view(view, None);
+            }
+            // self.swap_chain_image_views will now be empty
+
             let swapchain = khr::Swapchain::new(&self.instance, &self.device);
             swapchain.destroy_swapchain(self.swap_chain, None);
             // WARNING: self.swap_chain is now invalid!
@@ -217,7 +225,6 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleA
 }
 
 // Logical Device
-
 unsafe fn create_logical_device<'a>(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
@@ -266,9 +273,7 @@ unsafe fn create_logical_device<'a>(
     (device, graphics_queue, present_queue)
 }
 
-
 // Surface
-
 fn get_required_extensions_for_window(window: &Window, entry: &Entry) -> Vec<*const i8> {
     let surface_extensions = ash_window::enumerate_required_extensions(window).unwrap();
 
@@ -373,6 +378,36 @@ fn get_swap_chain_images(instance: &Instance, device: &Device, swap_chain: vk::S
     let swap_chain_ext = khr::Swapchain::new(instance, device);
     unsafe { swap_chain_ext.get_swapchain_images(swap_chain).expect("Unable to get swapchain images") }
 }
+
+fn create_image_views(swap_chain_images: &mut Vec<vk::Image>, format: vk::Format, device: &Device) -> Vec<vk::ImageView> {
+    let image = swap_chain_images.get(0).unwrap().clone();
+    let components = vk::ComponentMapping::builder()
+        .r(vk::ComponentSwizzle::ONE)
+        .g(vk::ComponentSwizzle::ONE)
+        .b(vk::ComponentSwizzle::ONE)
+        .a(vk::ComponentSwizzle::ONE)
+        .build();
+
+    let subresource_range = vk::ImageSubresourceRange::builder()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_mip_level(0)
+        .level_count(1)
+        .base_array_layer(0)
+        .layer_count(1)
+        .build();
+
+    let create_info = vk::ImageViewCreateInfo::builder()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .components(components)
+        .subresource_range(subresource_range);
+
+    let image_view = unsafe { device.create_image_view(&create_info, None).expect("Unable to get image view") };
+
+    vec![image_view]
+}
+
 
 // Physical Device
 fn pick_physical_device(

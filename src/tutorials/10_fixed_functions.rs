@@ -278,13 +278,34 @@ fn create_graphics_pipeline(device: &Device, extent: vk::Extent2D) {
         .viewport_count(1)
         .viewports(&viewports)
         .scissor_count(1)
-        .scissors(&scissors);
+        .scissors(&scissors)
+        .build();
     
     let rasterizer_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
         .depth_clamp_enable(false)
         .rasterizer_discard_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.0)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::CLOCKWISE)
+        .depth_bias_enable(false)
         .build();
+    
+    let multisampling_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+        .min_sample_shading(1.0)
+        .build();
+
+    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B | vk::ColorComponentFlags::A)
+        .blend_enable(false)
+        .build();
+
+    let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder();
+
+    let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
+    
     
 
 

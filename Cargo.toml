@@ -71,4 +71,12 @@ path = "src/tutorials/12_graphics_pipeline_complete.rs"
 [[bin]]
 name = "13"
 path = "src/tutorials/13_framebuffers.rs"
+
+[[bin]]
+name = "14"
+path = "src/tutorials/14_command_buffers.rs"
+
+[[bin]]
+name = "15"
+path = "src/tutorials/15_rendering_and_presentation.rs"
 # ------------------------------------------------------------

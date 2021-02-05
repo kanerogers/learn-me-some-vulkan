@@ -15,6 +15,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+#[derive(Clone, Debug)]
 struct QueueFamilyIndices {
     graphics_family: Option<u32>,
     present_family: Option<u32>,
@@ -222,6 +223,13 @@ unsafe fn create_logical_device<'a>(
     indices: QueueFamilyIndices,
 ) -> (Device, vk::Queue, vk::Queue) {
     let required_extensions = vec![khr::Swapchain::name()];
+
+    // TODO: Portability
+    // let extensions = portability_extensions();
+    // if has_portability(instance, physical_device) {
+    //     let mut extensions = extensions.iter().map(|i| i.as_c_str()).collect();
+    //     required_extensions.append(&mut extensions);
+    // }
     let required_extensions_raw = required_extensions.iter().map(|e| e.as_ptr()).collect::<Vec<_>>();
     let queue_priorities = [1.0];
     let graphics_queue_create_info = vk::DeviceQueueCreateInfo::builder()
@@ -369,35 +377,39 @@ fn pick_physical_device(
 ) -> (vk::PhysicalDevice, QueueFamilyIndices) {
     unsafe {
         let devices = instance.enumerate_physical_devices().unwrap();
-        for device in devices {
-            let (suitable, indices) = is_device_suitable(device, instance, entry, surface);
-            if suitable {
-                return (device, indices);
-            }
-        }
-        panic!("Failed to find a suitable device");
+        let mut devices = devices.into_iter().map(|d| {
+            get_suitability(d, instance, entry, surface)
+        }).collect::<Vec<_>>();
+        devices.sort_by_key(|i| i.0);
+
+        let (_, indices, device) = devices.remove(0);
+        (device, indices)
     }
 }
 
-unsafe fn is_device_suitable(
+/// Gets a device's suitability. Lower score is bettter.
+unsafe fn get_suitability(
     device: vk::PhysicalDevice,
     instance: &Instance,
     entry: &Entry,
     surface: vk::SurfaceKHR,
-) -> (bool, QueueFamilyIndices) {
+) -> (i8, QueueFamilyIndices, vk::PhysicalDevice) {
     let properties = instance.get_physical_device_properties(device);
-    let features = instance.get_physical_device_features(device);
     let indices = QueueFamilyIndices::find_queue_families(instance, device, entry, surface);
     let has_extension_support = check_device_extension_support(instance, device);
     let swap_chain_adequate = check_swap_chain_adequate(instance, entry, surface, device);
+    let has_graphics_family = indices.graphics_family.is_some();
 
-    let suitable = properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
-        && features.geometry_shader == vk::TRUE
-        && indices.graphics_family.is_some()
-        && has_extension_support
-        && swap_chain_adequate;
+    let mut suitability = 0;
+    if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
+        suitability -= 5;
+    }
 
-    (suitable, indices)
+    let suitable = has_extension_support && swap_chain_adequate && has_graphics_family;
+
+    if suitable { suitability -= 1 }
+
+    (suitability, indices, device)
 }
 
 fn check_swap_chain_adequate(instance: &Instance, entry: &Entry, surface: vk::SurfaceKHR, device: vk::PhysicalDevice) -> bool {
@@ -415,6 +427,24 @@ fn check_device_extension_support(instance: &Instance, device: vk::PhysicalDevic
 
         extensions.contains(&required_extension)
 }
+
+// TODO: Portability?
+// fn has_portability(instance: &Instance, device: vk::PhysicalDevice) -> bool {
+//     let extensions = unsafe { instance.enumerate_device_extension_properties(device).expect("Unable to get extension properties") }
+//         .iter()
+//         .map(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) })
+//         .collect::<Vec<_>>();
+
+//         let portability_extension = CString::new("VK_KHR_portability_subset").unwrap();
+//         extensions.contains(&portability_extension.as_c_str())
+// } 
+
+// fn portability_extensions() -> Vec<CString> {
+//     vec![
+//         CString::new("VK_KHR_portability_subset").unwrap(),
+//         CString::new("VK_KHR_get_physical_device_properties2").unwrap()
+//     ]
+// }
 
 // Debug Messenger
 

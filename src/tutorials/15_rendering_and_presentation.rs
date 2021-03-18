@@ -7,10 +7,7 @@ use ash::{
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
     vk, Device, Entry, Instance,
 };
-use std::{
-    ffi:: { CStr, CString},
-    cmp
-};
+use std::{cmp, ffi:: { CStr, CString}, mem::swap};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -688,32 +685,31 @@ fn get_swap_chain_images(instance: &Instance, device: &Device, swap_chain: vk::S
 }
 
 fn create_image_views(swap_chain_images: &mut Vec<vk::Image>, format: vk::Format, device: &Device) -> Vec<vk::ImageView> {
-    let image = swap_chain_images.get(0).unwrap().clone();
-    let components = vk::ComponentMapping::builder()
-        .r(vk::ComponentSwizzle::IDENTITY)
-        .g(vk::ComponentSwizzle::IDENTITY)
-        .b(vk::ComponentSwizzle::IDENTITY)
-        .a(vk::ComponentSwizzle::IDENTITY)
-        .build();
+    swap_chain_images.drain(..).map(|image| {
+        let components = vk::ComponentMapping::builder()
+            .r(vk::ComponentSwizzle::IDENTITY)
+            .g(vk::ComponentSwizzle::IDENTITY)
+            .b(vk::ComponentSwizzle::IDENTITY)
+            .a(vk::ComponentSwizzle::IDENTITY)
+            .build();
 
-    let subresource_range = vk::ImageSubresourceRange::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR)
-        .base_mip_level(0)
-        .level_count(1)
-        .base_array_layer(0)
-        .layer_count(1)
-        .build();
+        let subresource_range = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1)
+            .build();
 
-    let create_info = vk::ImageViewCreateInfo::builder()
-        .image(image)
-        .view_type(vk::ImageViewType::TYPE_2D)
-        .format(format)
-        .components(components)
-        .subresource_range(subresource_range);
+        let create_info = vk::ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(format)
+            .components(components)
+            .subresource_range(subresource_range);
 
-    let image_view = unsafe { device.create_image_view(&create_info, None).expect("Unable to get image view") };
-
-    vec![image_view]
+        unsafe { device.create_image_view(&create_info, None).expect("Unable to get image view") }
+    }).collect::<Vec<_>>()
 }
 
 fn create_framebuffers(image_views: &Vec<vk::ImageView>, device: &Device, render_pass: vk::RenderPass, extent: vk::Extent2D) -> Vec<vk::Framebuffer> {

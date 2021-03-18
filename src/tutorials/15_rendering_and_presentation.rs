@@ -7,7 +7,7 @@ use ash::{
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
     vk, Device, Entry, Instance,
 };
-use std::{cmp, ffi:: { CStr, CString}, mem::swap};
+use std::{cmp, ffi:: { CStr, CString}};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -15,6 +15,8 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 use byte_slice_cast::AsSliceOf;
+
+const MAX_FRAMES_IN_FLIGHT:usize = 2;
 
 #[derive(Clone, Debug)]
 struct QueueFamilyIndices {
@@ -109,8 +111,11 @@ struct HelloTriangleApplication {
     swap_chain_framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
-    image_available: vk::Semaphore,
-    render_finished: vk::Semaphore,
+    image_available_semaphores: Vec<vk::Semaphore>,
+    render_finished_semaphores: Vec<vk::Semaphore>,
+    surface_loader: khr::Surface,
+    surface: vk::SurfaceKHR,
+    current_frame: usize,
 }
 
 impl HelloTriangleApplication {
@@ -130,6 +135,7 @@ impl HelloTriangleApplication {
         let command_pool = create_command_pool(indices.clone(), &device);
         let command_buffers = create_command_buffers(&device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline);
         let (image_available, render_finished) = create_semaphores(&device);
+        let surface_loader = khr::Surface::new(&entry, &instance);
 
         HelloTriangleApplication {
             instance,
@@ -152,8 +158,11 @@ impl HelloTriangleApplication {
             swap_chain_framebuffers,
             command_pool,
             command_buffers,
-            image_available,
-            render_finished
+            image_available_semaphores: image_available,
+            render_finished_semaphores: render_finished,
+            surface_loader,
+            surface,
+            current_frame: 0,
         }
     }
 
@@ -198,19 +207,22 @@ impl HelloTriangleApplication {
     }
 
     pub fn draw_frame(&mut self) {
+        let image_available_semaphore = self.image_available_semaphores.get(self.current_frame).expect("Unable to get image_available semaphore for frame!");
+        let render_finished_semaphore = self.render_finished_semaphores.get(self.current_frame).expect("Unable to get render_finished semaphore");
+
         let (image_index, _) = unsafe {
-            self.swap_chain_ext.acquire_next_image(self.swap_chain, u64::MAX, self.image_available, vk::Fence::null()).expect("Unable to acquire image from swapchain")
+            self.swap_chain_ext.acquire_next_image(self.swap_chain, u64::MAX, *image_available_semaphore, vk::Fence::null()).expect("Unable to acquire image from swapchain")
         };
 
         println!("Drawing frame with index: {}", image_index);
 
-        let wait_semaphores = [self.image_available];
+        let wait_semaphores = [*image_available_semaphore];
         let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
 
         let command_buffer = self.command_buffers.get(image_index as usize).unwrap();
         let command_buffers = [*command_buffer];
 
-        let signal_semaphores = [self.render_finished];
+        let signal_semaphores = [*render_finished_semaphore];
 
         let submit_info = vk::SubmitInfo::builder()
             .command_buffers(&command_buffers)
@@ -238,8 +250,13 @@ impl HelloTriangleApplication {
 impl Drop for HelloTriangleApplication {
     fn drop(&mut self) {
         unsafe {
-            self.device.destroy_semaphore(self.render_finished, None);
-            self.device.destroy_semaphore(self.image_available, None);
+            for semaphore in self.render_finished_semaphores.drain(..) {
+                self.device.destroy_semaphore(semaphore, None);
+            }
+
+            for semaphore in self.image_available_semaphores.drain(..) {
+                self.device.destroy_semaphore(semaphore, None);
+            }
             // WARNING: self.render_finished and image_available are now invalid!
 
             self.device.destroy_command_pool(self.command_pool, None);
@@ -267,6 +284,16 @@ impl Drop for HelloTriangleApplication {
                 })
             });
             // WARNING: self.debug_messenger is now invalid!
+
+            self.surface_loader.destroy_surface(self.surface, None);
+            // WARNING: self.surface is now invalid!
+
+            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
+            // WARNING: self.pipeline_layout is now invalid!
+
+            self.device.destroy_pipeline(self.pipeline, None);
+            // WARNING: self.pipeline is now invalid!
+
 
             self.device.destroy_device(None);
             // WARNING: self.device is now invalid!
@@ -299,21 +326,36 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut app: HelloTriangleAp
             } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
             }
-            _ => {
+            Event::LoopDestroyed => {
+                println!("Exiting!");
+                unsafe { app.device.device_wait_idle().expect("Failed to wait for device idle") }
+            }
+            Event::MainEventsCleared => {
+                window.request_redraw();
+            }
+            Event::RedrawRequested(_window_id) => {
                 app.draw_frame();
             }
+            _ => ()
         }
     });
 }
 
 // Semaphores
-fn create_semaphores(device: &Device) -> (vk::Semaphore, vk::Semaphore) {
-    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+fn create_semaphores(device: &Device) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>) {
+    let mut image_available_semaphores = Vec::new();
+    let mut render_finished_semaphores = Vec::new();
+    
+    for _ in 0..MAX_FRAMES_IN_FLIGHT {
+        let semaphore_info = vk::SemaphoreCreateInfo::builder();
 
-    let image_available = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
-    let render_finished = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
+        let image_available = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
+        image_available_semaphores.push(image_available);
+        let render_finished = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
+        render_finished_semaphores.push(render_finished);
+    }
 
-    (image_available, render_finished)
+    (image_available_semaphores, render_finished_semaphores)
 }
 
 // Command Buffers/Pools
@@ -333,7 +375,9 @@ fn create_command_buffers(device: &Device, swap_chain_framebuffers: &Vec<vk::Fra
     let command_buffers = unsafe { device.allocate_command_buffers(&alloc_info).expect("Unable to allocate frame_buffers") };
 
     for (command_buffer, framebuffer) in command_buffers.iter().zip(swap_chain_framebuffers) {
-        let begin_info = vk::CommandBufferBeginInfo::builder();
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::SIMULTANEOUS_USE);
+
         unsafe { device.begin_command_buffer(*command_buffer, &begin_info).expect("Unable to begin command buffer"); }
             let render_area = vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0},

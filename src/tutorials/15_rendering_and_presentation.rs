@@ -100,6 +100,7 @@ struct HelloTriangleApplication {
     device: Device,
     _graphics_queue: vk::Queue,
     _present_queue: vk::Queue,
+    swap_chain_ext: khr::Swapchain,
     swap_chain: vk::SwapchainKHR,
     _swap_chain_images: Vec<vk::Image>,
     _swap_chain_image_format: vk::Format,
@@ -110,7 +111,9 @@ struct HelloTriangleApplication {
     pipeline: vk::Pipeline,
     swap_chain_framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
-    command_buffers: Vec<vk::CommandBuffer>
+    command_buffers: Vec<vk::CommandBuffer>,
+    image_available: vk::Semaphore,
+    render_finished: vk::Semaphore,
 }
 
 impl HelloTriangleApplication {
@@ -121,7 +124,7 @@ impl HelloTriangleApplication {
         let (physical_device, indices) = pick_physical_device(&instance, &entry, surface);
         let (device, graphics_queue, present_queue) =
             unsafe { create_logical_device(&instance, physical_device, indices.clone()) };
-        let (swap_chain, format, extent) = create_swap_chain(&instance, &entry, physical_device, surface, window, &device);
+        let (swap_chain_ext, swap_chain, format, extent) = create_swap_chain(&instance, &entry, physical_device, surface, window, &device);
         let mut swap_chain_images = get_swap_chain_images(&instance, &device, swap_chain);
         let swap_chain_image_views = create_image_views(&mut swap_chain_images, format, &device);
         let render_pass = create_render_pass(format, &device);
@@ -129,6 +132,7 @@ impl HelloTriangleApplication {
         let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &device, render_pass, extent);
         let command_pool = create_command_pool(indices.clone(), &device);
         let command_buffers = create_command_buffers(&device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline);
+        let (image_available, render_finished) = create_semaphores(&device);
 
         HelloTriangleApplication {
             instance,
@@ -139,6 +143,7 @@ impl HelloTriangleApplication {
             device,
             _graphics_queue: graphics_queue,
             _present_queue: present_queue,
+            swap_chain_ext,
             swap_chain,
             _swap_chain_images: swap_chain_images,
             _swap_chain_image_format: format,
@@ -150,6 +155,8 @@ impl HelloTriangleApplication {
             swap_chain_framebuffers,
             command_pool,
             command_buffers,
+            image_available,
+            render_finished
         }
     }
 
@@ -192,11 +199,52 @@ impl HelloTriangleApplication {
             .build(event_loop)
             .unwrap()
     }
+
+    pub fn draw_frame(&mut self) {
+        let (image_index, _) = unsafe {
+            self.swap_chain_ext.acquire_next_image(self.swap_chain, u64::MAX, self.image_available, vk::Fence::null()).expect("Unable to acquire image from swapchain")
+        };
+
+        println!("Drawing frame with index: {}", image_index);
+
+        let wait_semaphores = [self.image_available];
+        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+
+        let command_buffer = self.command_buffers.get(image_index as usize).unwrap();
+        let command_buffers = [*command_buffer];
+
+        let signal_semaphores = [self.render_finished];
+
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(&command_buffers)
+            .wait_semaphores(&wait_semaphores)
+            .wait_dst_stage_mask(&wait_stages)
+            .signal_semaphores(&signal_semaphores)
+            .build();
+
+        let submits = [submit_info];
+        
+        unsafe { self.device.queue_submit(self._graphics_queue, &submits, vk::Fence::null()).expect("Unable to submit to queue") };
+
+        let swap_chains = [self.swap_chain];
+        let image_indices = [image_index];
+
+        let present_info = vk::PresentInfoKHR::builder()
+            .swapchains(&swap_chains)
+            .wait_semaphores(&signal_semaphores)
+            .image_indices(&image_indices);
+
+        unsafe { self.swap_chain_ext.queue_present(self._present_queue, &present_info).expect("Unable to present") };
+    }
 }
 
 impl Drop for HelloTriangleApplication {
     fn drop(&mut self) {
         unsafe {
+            self.device.destroy_semaphore(self.render_finished, None);
+            self.device.destroy_semaphore(self.image_available, None);
+            // WARNING: self.render_finished and image_available are now invalid!
+
             self.device.destroy_command_pool(self.command_pool, None);
             // WARNING: self.command_pool is now invalid!
 
@@ -239,7 +287,11 @@ fn main() {
     main_loop(event_loop, window, app);
 }
 
-fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleApplication) -> () {
+// *************************
+//        MAIN LOOP
+// *************************
+
+fn main_loop(event_loop: EventLoop<()>, window: Window, mut app: HelloTriangleApplication) -> () {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -250,9 +302,21 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut _app: HelloTriangleA
             } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
             }
-            _ => (),
+            _ => {
+                app.draw_frame();
+            }
         }
     });
+}
+
+// Semaphores
+fn create_semaphores(device: &Device) -> (vk::Semaphore, vk::Semaphore) {
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+
+    let image_available = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
+    let render_finished = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
+
+    (image_available, render_finished)
 }
 
 // Command Buffers/Pools
@@ -442,12 +506,22 @@ fn create_render_pass(format: vk::Format, device: &Device) -> vk::RenderPass {
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(&color_attachment_refs)
         .build();
-
     let subpasses = [subpass];
+
+    let dependency = vk::SubpassDependency::builder()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .build();
+    let dependencies = [dependency];
 
     let render_pass_create_info = vk::RenderPassCreateInfo::builder()
         .attachments(&color_attachments)
-        .subpasses(&subpasses);
+        .subpasses(&subpasses)
+        .dependencies(&dependencies);
 
     unsafe { device.create_render_pass(&render_pass_create_info, None).unwrap() }
 }
@@ -531,7 +605,13 @@ fn get_required_extensions_for_window(window: &Window, entry: &Entry) -> Vec<*co
 }
 
 // Swap Chain
-fn create_swap_chain (instance: &Instance, entry: &Entry, physical_device: vk::PhysicalDevice, surface: vk::SurfaceKHR, window: &Window, logical_device: &Device) -> (vk::SwapchainKHR, vk::Format, vk::Extent2D) {
+fn create_swap_chain (
+    instance: &Instance,
+    entry: &Entry,
+    physical_device: vk::PhysicalDevice,
+    surface: vk::SurfaceKHR,
+    window: &Window,
+    logical_device: &Device) -> (khr::Swapchain, vk::SwapchainKHR, vk::Format, vk::Extent2D) {
     let swap_chain_support = SwapChainSupportDetails::query_swap_chain_support(instance, entry, physical_device, surface);
 
     let surface_format = choose_swap_surface_format(swap_chain_support.surface_formats);
@@ -566,9 +646,9 @@ fn create_swap_chain (instance: &Instance, entry: &Entry, physical_device: vk::P
         .old_swapchain(vk::SwapchainKHR::null())
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT);
 
-    let swapchain = khr::Swapchain::new(instance, logical_device);
-    let swapchain = unsafe { swapchain.create_swapchain(&create_info, None) }.expect("Unable to create Swapchain");
-    (swapchain, surface_format.format, extent)
+    let swapchain_ext = khr::Swapchain::new(instance, logical_device);
+    let swapchain = unsafe { swapchain_ext.create_swapchain(&create_info, None) }.expect("Unable to create Swapchain");
+    (swapchain_ext, swapchain, surface_format.format, extent)
 }
 
 fn choose_swap_surface_format(formats: Vec<vk::SurfaceFormatKHR>) -> vk::SurfaceFormatKHR {
@@ -610,10 +690,10 @@ fn get_swap_chain_images(instance: &Instance, device: &Device, swap_chain: vk::S
 fn create_image_views(swap_chain_images: &mut Vec<vk::Image>, format: vk::Format, device: &Device) -> Vec<vk::ImageView> {
     let image = swap_chain_images.get(0).unwrap().clone();
     let components = vk::ComponentMapping::builder()
-        .r(vk::ComponentSwizzle::ONE)
-        .g(vk::ComponentSwizzle::ONE)
-        .b(vk::ComponentSwizzle::ONE)
-        .a(vk::ComponentSwizzle::ONE)
+        .r(vk::ComponentSwizzle::IDENTITY)
+        .g(vk::ComponentSwizzle::IDENTITY)
+        .b(vk::ComponentSwizzle::IDENTITY)
+        .a(vk::ComponentSwizzle::IDENTITY)
         .build();
 
     let subresource_range = vk::ImageSubresourceRange::builder()

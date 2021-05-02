@@ -113,6 +113,8 @@ struct HelloTriangleApplication {
     command_buffers: Vec<vk::CommandBuffer>,
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
+    in_flight_fences: Vec<vk::Fence>,
+    images_in_flight: Vec<Option<vk::Fence>>,
     surface_loader: khr::Surface,
     surface: vk::SurfaceKHR,
     current_frame: usize,
@@ -134,7 +136,7 @@ impl HelloTriangleApplication {
         let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &device, render_pass, extent);
         let command_pool = create_command_pool(indices.clone(), &device);
         let command_buffers = create_command_buffers(&device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline);
-        let (image_available, render_finished) = create_semaphores(&device);
+        let (image_available, render_finished, in_flight_fences, images_in_flight) = create_sync_objects(&device, swap_chain_image_views.len());
         let surface_loader = khr::Surface::new(&entry, &instance);
 
         HelloTriangleApplication {
@@ -160,6 +162,8 @@ impl HelloTriangleApplication {
             command_buffers,
             image_available_semaphores: image_available,
             render_finished_semaphores: render_finished,
+            in_flight_fences,
+            images_in_flight,
             surface_loader,
             surface,
             current_frame: 0,
@@ -207,12 +211,24 @@ impl HelloTriangleApplication {
     }
 
     pub fn draw_frame(&mut self) {
+        let fence = self.in_flight_fences.get(self.current_frame).expect("Unable to get fence!");
+        let fences = [*fence];
+
+        unsafe { self.device.wait_for_fences(&fences, true, u64::MAX) }.expect("Unable to wait for fence");
+
         let image_available_semaphore = self.image_available_semaphores.get(self.current_frame).expect("Unable to get image_available semaphore for frame!");
         let render_finished_semaphore = self.render_finished_semaphores.get(self.current_frame).expect("Unable to get render_finished semaphore");
 
         let (image_index, _) = unsafe {
             self.swap_chain_ext.acquire_next_image(self.swap_chain, u64::MAX, *image_available_semaphore, vk::Fence::null()).expect("Unable to acquire image from swapchain")
         };
+
+        if let Some(image_in_flight_fence) = unsafe { self.images_in_flight.get_unchecked(image_index as usize) } { 
+            let fences = [*image_in_flight_fence];
+            unsafe { self.device.wait_for_fences(&fences, true, u64::MAX) }.expect("Unable to wait for image_in_flight_fence");
+        }
+
+        self.images_in_flight[image_index as usize] = Some(*fence);
 
         println!("Drawing frame with index: {}", image_index);
 
@@ -233,7 +249,9 @@ impl HelloTriangleApplication {
 
         let submits = [submit_info];
         
-        unsafe { self.device.queue_submit(self._graphics_queue, &submits, vk::Fence::null()).expect("Unable to submit to queue") };
+        self.images_in_flight[image_index as usize] = None;
+        unsafe { self.device.reset_fences(&fences) }.expect("Unable to reset fences");
+        unsafe { self.device.queue_submit(self._graphics_queue, &submits, *fence).expect("Unable to submit to queue") };
 
         let swap_chains = [self.swap_chain];
         let image_indices = [image_index];
@@ -244,6 +262,8 @@ impl HelloTriangleApplication {
             .image_indices(&image_indices);
 
         unsafe { self.swap_chain_ext.queue_present(self._present_queue, &present_info).expect("Unable to present") };
+
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 }
 
@@ -257,7 +277,10 @@ impl Drop for HelloTriangleApplication {
             for semaphore in self.image_available_semaphores.drain(..) {
                 self.device.destroy_semaphore(semaphore, None);
             }
-            // WARNING: self.render_finished and image_available are now invalid!
+
+            for fence in self.in_flight_fences.drain(..) {
+                self.device.destroy_fence(fence, None);
+            }
 
             self.device.destroy_command_pool(self.command_pool, None);
             // WARNING: self.command_pool is now invalid!
@@ -342,20 +365,34 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut app: HelloTriangleAp
 }
 
 // Semaphores
-fn create_semaphores(device: &Device) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>) {
-    let mut image_available_semaphores = Vec::new();
-    let mut render_finished_semaphores = Vec::new();
+fn create_sync_objects(device: &Device, swapchain_images_size: usize) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>, Vec<Option<vk::Fence>>) {
+    let mut image_available_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+    let mut render_finished_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+    let mut inflight_fences = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+    let mut images_in_flight = Vec::with_capacity(swapchain_images_size);
+
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+    let fence_info = vk::FenceCreateInfo::builder()
+        .flags(vk::FenceCreateFlags::SIGNALED);
     
     for _ in 0..MAX_FRAMES_IN_FLIGHT {
-        let semaphore_info = vk::SemaphoreCreateInfo::builder();
 
         let image_available = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
         image_available_semaphores.push(image_available);
+
         let render_finished = unsafe { device.create_semaphore(&semaphore_info, None).expect("Unable to create semaphore") };
         render_finished_semaphores.push(render_finished);
+
+        let in_flight_fence = unsafe { device.create_fence(&fence_info, None)}.expect("Unable to create fence!");
+        inflight_fences.push(in_flight_fence);
     }
 
-    (image_available_semaphores, render_finished_semaphores)
+    println!("swapchain images size: {}", swapchain_images_size);
+    for _ in 0..swapchain_images_size {
+        images_in_flight.push(None);
+    }
+
+    (image_available_semaphores, render_finished_semaphores, inflight_fences, images_in_flight)
 }
 
 // Command Buffers/Pools

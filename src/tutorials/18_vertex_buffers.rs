@@ -9,7 +9,7 @@ use ash::{
 };
 use cgmath::{Vector2, Vector3, vec2, vec3};
 use memoffset::offset_of;
-use std::{cmp, ffi:: { CStr, CString}};
+use std::{cmp, ffi:: { CStr, CString}, mem::size_of};
 use winit::{dpi::{LogicalSize, PhysicalSize}, event::{Event, WindowEvent}, event_loop::{ControlFlow, EventLoop}, window::{Window, WindowBuilder}};
 use byte_slice_cast::AsSliceOf;
 
@@ -97,7 +97,7 @@ impl Vertex {
     fn get_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
             .binding(0)
-            .stride(std::mem::size_of::<Vertex>() as u32)
+            .stride(size_of::<Vertex>() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
             .build()
     }
@@ -150,6 +150,8 @@ struct HelloTriangleApplication {
     current_frame: usize,
     framebuffer_resized: bool,
     vertices: Vec<Vertex>,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
 }
 
 impl HelloTriangleApplication {
@@ -167,14 +169,16 @@ impl HelloTriangleApplication {
         let (pipeline_layout, pipeline) = create_graphics_pipeline(&device, extent, render_pass);
         let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &device, render_pass, extent);
         let command_pool = create_command_pool(indices.clone(), &device);
-        let command_buffers = create_command_buffers(&device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline);
-        let (image_available, render_finished, in_flight_fences, images_in_flight) = create_sync_objects(&device, swap_chain_image_views.len());
-        let surface_loader = khr::Surface::new(&entry, &instance);
         let vertices = vec![
             Vertex::new(vec2(0.0, -0.5), vec3(1.0, 0.0, 0.0)),
             Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0)),
-            Vertex::new(vec2(-0.5, 0.0), vec3(0.0, 1.0, 0.0))
+            Vertex::new(vec2(-0.5, 0.0), vec3(0.0, 0.0, 1.0))
         ];
+        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&device, &instance, &physical_device, &vertices);
+        let vertex_count = vertices.len() as u32;
+        let command_buffers = create_command_buffers(&device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline, vertex_buffer, vertex_count);
+        let (image_available, render_finished, in_flight_fences, images_in_flight) = create_sync_objects(&device, swap_chain_image_views.len());
+        let surface_loader = khr::Surface::new(&entry, &instance);
 
         HelloTriangleApplication {
             instance,
@@ -206,6 +210,8 @@ impl HelloTriangleApplication {
             current_frame: 0,
             framebuffer_resized: false,
             vertices,
+            vertex_buffer,
+            vertex_buffer_memory,
         }
     }
 
@@ -254,7 +260,8 @@ impl HelloTriangleApplication {
         self.pipeline = pipeline;
         self.pipeline_layout = pipeline_layout;
         self.swap_chain_framebuffers = create_framebuffers(&self.swap_chain_image_views, &self.device, self.render_pass, extent);
-        self.command_buffers = create_command_buffers(&self.device, &self.swap_chain_framebuffers, self.command_pool, self.render_pass, extent, pipeline);
+        let vertex_count = self.vertices.len() as u32;
+        self.command_buffers = create_command_buffers(&self.device, &self.swap_chain_framebuffers, self.command_pool, self.render_pass, extent, pipeline, self.vertex_buffer, vertex_count);
         self.framebuffer_resized = false;
     }
 
@@ -350,6 +357,36 @@ impl HelloTriangleApplication {
     }
 }
 
+fn create_vertex_buffer(device: &Device, instance: &Instance, physical_device: &vk::PhysicalDevice, vertices: &Vec<Vertex>) -> (vk::Buffer, vk::DeviceMemory) {
+    let create_info = vk::BufferCreateInfo::builder()
+        .size((size_of::<Vertex>() * vertices.len()) as u64)
+        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+    let buffer = unsafe { device.create_buffer(&create_info, None).expect("Unable to create buffer") };
+
+    let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+
+    let memory_type = find_memory_type(instance, physical_device, requirements.memory_type_bits, properties);
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type)
+        .build();
+    
+    let device_memory = unsafe { device.allocate_memory(&alloc_info, None).expect("Unable to allocate memory") };
+    unsafe { 
+        device.bind_buffer_memory(buffer, device_memory, 0).expect("Unable to bind memory");
+        let data = device.map_memory(device_memory, 0, create_info.size, vk::MemoryMapFlags::empty()).expect("Unable to map memory");
+        let data = data as *mut Vertex;
+        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
+        device.unmap_memory(device_memory)
+    }
+
+    (buffer, device_memory)
+}
+
+
 impl Drop for HelloTriangleApplication {
     fn drop(&mut self) {
         unsafe {
@@ -359,6 +396,9 @@ impl Drop for HelloTriangleApplication {
             // self.swap_chain_image_views will now be empty
             // self.swap_chain_framebuffers will now be empty
             // WARNING: self.swap_chain is now invalid!
+
+            self.device.destroy_buffer(self.vertex_buffer, None);
+            self.device.free_memory(self.vertex_buffer_memory, None);
 
             for semaphore in self.render_finished_semaphores.drain(..) {
                 self.device.destroy_semaphore(semaphore, None);
@@ -443,6 +483,17 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut app: HelloTriangleAp
     });
 }
 
+fn find_memory_type(instance: &Instance, physical_device: &vk::PhysicalDevice, type_filter: u32, properties: vk::MemoryPropertyFlags) -> u32 {
+    let device_memory_properties = unsafe { instance.get_physical_device_memory_properties(*physical_device) };
+    for i in 0..device_memory_properties.memory_type_count {
+        let has_type = type_filter & (1 << i) != 0;
+        let has_properties =  device_memory_properties.memory_types[i as usize].property_flags.contains(properties);
+        if has_type && has_properties { return i }
+    }
+
+    panic!("Unable to find suitable memory type")
+}
+
 // Semaphores
 fn create_sync_objects(device: &Device, swapchain_images_size: usize) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>, Vec<Option<vk::Fence>>) {
     let mut image_available_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
@@ -481,7 +532,7 @@ fn create_command_pool(queue_family_indices: QueueFamilyIndices, device: &Device
     unsafe { device.create_command_pool(&pool_info, None).expect("Unable to create command pool") }
 }
 
-fn create_command_buffers(device: &Device, swap_chain_framebuffers: &Vec<vk::Framebuffer>, command_pool: vk::CommandPool, render_pass: vk::RenderPass, extent: vk::Extent2D, graphics_pipeline: vk::Pipeline) -> Vec<vk::CommandBuffer> {
+fn create_command_buffers(device: &Device, swap_chain_framebuffers: &Vec<vk::Framebuffer>, command_pool: vk::CommandPool, render_pass: vk::RenderPass, extent: vk::Extent2D, graphics_pipeline: vk::Pipeline, vertex_buffer: vk::Buffer, vertex_count: u32) -> Vec<vk::CommandBuffer> {
     let alloc_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
@@ -513,10 +564,14 @@ fn create_command_buffers(device: &Device, swap_chain_framebuffers: &Vec<vk::Fra
             .render_area(render_area)
             .clear_values(&clear_colors);
 
+        let vertex_buffers = [vertex_buffer];
+        let offsets = [0];
+
         unsafe { 
             device.cmd_begin_render_pass(*command_buffer, &render_pass_info, vk::SubpassContents::INLINE);
             device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, graphics_pipeline);
-            device.cmd_draw(*command_buffer, 3, 1, 0, 0);
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &vertex_buffers, &offsets);
+            device.cmd_draw(*command_buffer, vertex_count, 1, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer).expect("Unable to record command buffer!");
         }

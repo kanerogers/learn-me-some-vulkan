@@ -8,12 +8,12 @@ version = "0.1.0"
 ash = "0.31.0"
 ash-window = "0.5"
 byte-slice-cast = "1.0"
-cgmath = "0.17.0"
+cgmath = "0.18.0"
 image = "0.22"
 memoffset = "0.5.1"
 num = "0.2"
 tobj = "0.1.10"
-winit = "0.20.0"
+winit = "0.24.0"
 
 # tutorial examples shortcut ---------------------------------
 [[bin]]
@@ -79,4 +79,15 @@ path = "src/tutorials/14_command_buffers.rs"
 [[bin]]
 name = "15"
 path = "src/tutorials/15_rendering_and_presentation.rs"
-# ------------------------------------------------------------
+
+[[bin]]
+name = "16"
+path = "src/tutorials/16_swap_chain_recreation.rs"
+
+[[bin]]
+name = "17"
+path = "src/tutorials/17_vertex_input.rs"
+
+[[bin]]
+name = "18"
+path = "src/tutorials/18_vertex_buffers.rs"

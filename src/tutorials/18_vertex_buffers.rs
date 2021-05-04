@@ -170,9 +170,12 @@ impl HelloTriangleApplication {
         let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &device, render_pass, extent);
         let command_pool = create_command_pool(indices.clone(), &device);
         let vertices = vec![
-            Vertex::new(vec2(0.0, -0.5), vec3(1.0, 0.0, 0.0)),
-            Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0)),
-            Vertex::new(vec2(-0.5, 0.0), vec3(0.0, 0.0, 1.0))
+            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0)),
+            Vertex::new(vec2(0.5, 0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(0.5, 0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(-0.5, 0.5), vec3(0.0, 1.0, 1.0)),
+            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
         ];
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&device, &instance, &physical_device, &vertices);
         let vertex_count = vertices.len() as u32;

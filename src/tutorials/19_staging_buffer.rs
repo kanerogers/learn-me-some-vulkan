@@ -365,42 +365,6 @@ impl HelloTriangleApplication {
     }
 }
 
-fn create_buffer(context: &VulkanContext, size: vk::DeviceSize) -> (vk::Buffer, vk::DeviceMemory) {
-    let create_info = vk::BufferCreateInfo::builder()
-        .size(size)
-        .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-    let buffer = unsafe { context.device.create_buffer(&create_info, None).expect("Unable to create buffer") };
-
-    let requirements = unsafe { context.device.get_buffer_memory_requirements(buffer) };
-    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-
-    let memory_type = find_memory_type(&context.instance, &context.physical_device, requirements.memory_type_bits, properties);
-    let alloc_info = vk::MemoryAllocateInfo::builder()
-        .allocation_size(requirements.size)
-        .memory_type_index(memory_type)
-        .build();
-    
-    let device_memory = unsafe { context.device.allocate_memory(&alloc_info, None).expect("Unable to allocate memory") };
-    unsafe { context.device.bind_buffer_memory(buffer, device_memory, 0).expect("Unable to bind memory"); }
-
-
-    (buffer, device_memory)
-}
-
-fn create_vertex_buffer(context: &VulkanContext, vertices: &Vec<Vertex>) -> (vk::Buffer, vk::DeviceMemory) {
-    let size = (size_of::<Vertex>() * vertices.len()) as u64;
-    let (buffer, device_memory) = create_buffer(context, size);
-    unsafe { 
-        let data = context.device.map_memory(device_memory, 0, size, vk::MemoryMapFlags::empty()).expect("Unable to map memory");
-        let data = data as *mut Vertex;
-        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
-        context.device.unmap_memory(device_memory)
-    }
-
-    (buffer, device_memory)
-}
 
 
 
@@ -509,6 +473,48 @@ fn find_memory_type(instance: &Instance, physical_device: &vk::PhysicalDevice, t
     }
 
     panic!("Unable to find suitable memory type")
+}
+
+// Buffers
+fn create_buffer(context: &VulkanContext, size: vk::DeviceSize, usage: vk::BufferUsageFlags, properties: vk::MemoryPropertyFlags) -> (vk::Buffer, vk::DeviceMemory) {
+    let create_info = vk::BufferCreateInfo::builder()
+        .size(size)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+    let buffer = unsafe { context.device.create_buffer(&create_info, None).expect("Unable to create buffer") };
+
+    let requirements = unsafe { context.device.get_buffer_memory_requirements(buffer) };
+
+    let memory_type = find_memory_type(&context.instance, &context.physical_device, requirements.memory_type_bits, properties);
+    let alloc_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type)
+        .build();
+    
+    let device_memory = unsafe { context.device.allocate_memory(&alloc_info, None).expect("Unable to allocate memory") };
+    unsafe { context.device.bind_buffer_memory(buffer, device_memory, 0).expect("Unable to bind memory"); }
+
+
+    (buffer, device_memory)
+}
+
+fn create_vertex_buffer(context: &VulkanContext, vertices: &Vec<Vertex>) -> (vk::Buffer, vk::DeviceMemory) {
+    let size = (size_of::<Vertex>() * vertices.len()) as u64;
+    let staging_usage = vk::BufferUsageFlags::TRANSFER_SRC;
+    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+    let (staging_buffer, staging_memory) = create_buffer(context, size, staging_usage, properties);
+    unsafe { 
+        let data = context.device.map_memory(staging_memory, 0, size, vk::MemoryMapFlags::empty()).expect("Unable to map memory");
+        let data = data as *mut Vertex;
+        std::ptr::copy_nonoverlapping(vertices.as_ptr(), data, vertices.len());
+        context.device.unmap_memory(staging_memory)
+    }
+
+    let vertex_usage = vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST;
+    let (vertex_buffer, vertex_buffer_memory) = create_buffer(context, size, vertex_usage, properties);
+
+    (vertex_buffer, vertex_buffer_memory)
 }
 
 // Semaphores

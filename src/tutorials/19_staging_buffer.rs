@@ -129,6 +129,8 @@ struct VulkanContext {
     surface: vk::SurfaceKHR,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
+    debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
+    debug_utils: Option<ext::DebugUtils>,
 }
 
 impl VulkanContext {
@@ -141,7 +143,8 @@ impl VulkanContext {
             unsafe { create_logical_device(&instance, physical_device, indices.clone()) };
         let command_pool = create_command_pool(indices.clone(), &device);
 
-        Self { device, entry, instance, physical_device, command_pool, surface, graphics_queue, present_queue
+        Self { 
+            device, entry, instance, physical_device, command_pool, surface, graphics_queue, present_queue, debug_utils, debug_messenger
         } 
     }
 
@@ -395,6 +398,12 @@ impl Drop for HelloTriangleApplication {
             self.context.device.destroy_command_pool(self.context.command_pool, None);
             // WARNING: self.command_pool is now invalid!
 
+            self.context.debug_messenger.map(|m| {
+                self.context.debug_utils.as_ref().map(|d| {
+                    d.destroy_debug_utils_messenger(m, None);
+                })
+            });
+
             self.surface_loader.destroy_surface(self.context.surface, None);
             // WARNING: self.surface is now invalid!
 
@@ -505,15 +514,55 @@ fn create_vertex_buffer(context: &VulkanContext, vertices: &Vec<Vertex>) -> (vk:
 
     let vertex_usage = vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST;
     let (vertex_buffer, vertex_buffer_memory) = create_buffer(context, size, vertex_usage, properties);
+    copy_buffer(context, staging_buffer, vertex_buffer, size);
+
+    unsafe {
+        context.device.destroy_buffer(staging_buffer, None);
+        context.device.free_memory(staging_memory, None);
+    }
 
     (vertex_buffer, vertex_buffer_memory)
 }
 
-fn copy_buffer(context: &VulkanContext, src: vk::Buffer, dst: vk::Buffer, size: vk::DeviceSize) {
+fn copy_buffer(context: &VulkanContext, src_buffer: vk::Buffer, dst_buffer: vk::Buffer, size: vk::DeviceSize) {
     let alloc_info = vk::CommandBufferAllocateInfo::builder()
-    .level(vk::CommandBufferLevel::PRIMARY)
-    .command_pool(context.command_pool);
+        .command_buffer_count(1)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_pool(context.command_pool);
 
+    let command_buffer = unsafe { context.device.allocate_command_buffers(&alloc_info).map(|mut b| b.pop().unwrap()).expect("Unable to allocate command buffer") };
+
+    let begin_info = vk::CommandBufferBeginInfo::builder()
+        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+    unsafe { context.device.begin_command_buffer(command_buffer, &begin_info).expect("Unable to begin command buffer") } 
+
+    let copy_region = vk::BufferCopy::builder()
+        .src_offset(0)
+        .dst_offset(0)
+        .size(size)
+        .build();
+
+    let regions = [copy_region];
+
+    unsafe { 
+        context.device.cmd_copy_buffer(command_buffer, src_buffer, dst_buffer, &regions);
+        context.device.end_command_buffer(command_buffer).expect("Unable to end command buffer");
+    }
+
+    let command_buffers = &[command_buffer];
+
+    let submit_info = vk::SubmitInfo::builder()
+        .command_buffers(command_buffers)
+        .build();
+
+    let submit_info = &[submit_info];
+
+    unsafe {
+        context.device.queue_submit(context.graphics_queue, submit_info, vk::Fence::null()).expect("Unable to submit to queue");
+        context.device.queue_wait_idle(context.graphics_queue).expect("Unable to wait idle");
+        context.device.free_command_buffers(context.command_pool, command_buffers)
+    }
 }
 
 // Semaphores

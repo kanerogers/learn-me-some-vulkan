@@ -125,99 +125,24 @@ struct VulkanContext {
     entry: Entry,
     instance: Instance,
     physical_device: vk::PhysicalDevice,
-}
-
-struct HelloTriangleApplication {
-    context: VulkanContext,
-    debug_utils: Option<ext::DebugUtils>,
-    debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
-    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    surface: vk::SurfaceKHR,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
-    swap_chain_ext: khr::Swapchain,
-    swap_chain: vk::SwapchainKHR,
-    _swap_chain_images: Vec<vk::Image>,
-    _swap_chain_image_format: vk::Format,
-    _swap_chain_extent: vk::Extent2D,
-    swap_chain_image_views: Vec<vk::ImageView>,
-    render_pass: vk::RenderPass,
-    pipeline_layout: vk::PipelineLayout,
-    pipeline: vk::Pipeline,
-    swap_chain_framebuffers: Vec<vk::Framebuffer>,
-    command_pool: vk::CommandPool,
-    command_buffers: Vec<vk::CommandBuffer>,
-    image_available_semaphores: Vec<vk::Semaphore>,
-    render_finished_semaphores: Vec<vk::Semaphore>,
-    in_flight_fences: Vec<vk::Fence>,
-    images_in_flight: Vec<Option<vk::Fence>>,
-    surface_loader: khr::Surface,
-    surface: vk::SurfaceKHR,
-    current_frame: usize,
-    framebuffer_resized: bool,
-    vertices: Vec<Vertex>,
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
 }
 
-impl HelloTriangleApplication {
-    pub fn new(window: &Window) -> HelloTriangleApplication {
+impl VulkanContext {
+    fn new(window: &Window) -> Self { 
         let (instance, entry, debug_utils, debug_messenger) = unsafe { Self::init_vulkan(&window) };
         let surface =
             unsafe { ash_window::create_surface(&entry, &instance, window, None).unwrap() };
         let (physical_device, indices) = pick_physical_device(&instance, &entry, surface);
         let (device, graphics_queue, present_queue) =
             unsafe { create_logical_device(&instance, physical_device, indices.clone()) };
-        let context = VulkanContext { device, entry, instance, physical_device };
-        
-        let (swap_chain_ext, swap_chain, format, extent) = create_swap_chain(&context, surface, window);
-        let mut swap_chain_images = get_swap_chain_images(&context, swap_chain);
-        let swap_chain_image_views = create_image_views(&mut swap_chain_images, format, &context);
-        let render_pass = create_render_pass(format, &context.device);
-        let (pipeline_layout, pipeline) = create_graphics_pipeline(&context.device, extent, render_pass);
-        let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &context.device, render_pass, extent);
-        let command_pool = create_command_pool(indices.clone(), &context.device);
-        let vertices = vec![
-            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
-            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0)),
-            Vertex::new(vec2(0.5, 0.5), vec3(1.0, 0.0, 1.0)),
-        ];
-        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
-        let vertex_count = vertices.len() as u32;
-        let command_buffers = create_command_buffers(&context.device, &swap_chain_framebuffers, command_pool, render_pass, extent, pipeline, vertex_buffer, vertex_count);
-        let (image_available, render_finished, in_flight_fences, images_in_flight) = create_sync_objects(&context.device, swap_chain_image_views.len());
-        let surface_loader = khr::Surface::new(&context.entry, &context.instance);
+        let command_pool = create_command_pool(indices.clone(), &device);
 
-        HelloTriangleApplication {
-            context,
-            debug_utils,
-            debug_messenger,
-            physical_device,
-            graphics_queue,
-            present_queue,
-            swap_chain_ext,
-            swap_chain,
-            _swap_chain_images: swap_chain_images,
-            _swap_chain_image_format: format,
-            _swap_chain_extent: extent,
-            swap_chain_image_views,
-            render_pass,
-            pipeline_layout,
-            pipeline,
-            swap_chain_framebuffers,
-            command_pool,
-            command_buffers,
-            image_available_semaphores: image_available,
-            render_finished_semaphores: render_finished,
-            in_flight_fences,
-            images_in_flight,
-            surface_loader,
-            surface,
-            current_frame: 0,
-            framebuffer_resized: false,
-            vertices,
-            vertex_buffer,
-            vertex_buffer_memory,
-        }
+        Self { device, entry, instance, physical_device, command_pool, surface, graphics_queue, present_queue
+        } 
     }
 
     pub unsafe fn init_vulkan(
@@ -251,12 +176,86 @@ impl HelloTriangleApplication {
 
         (instance, entry, debug_utils, messenger)
     }
+}
+
+struct HelloTriangleApplication {
+    context: VulkanContext,
+    swap_chain_ext: khr::Swapchain,
+    swap_chain: vk::SwapchainKHR,
+    _swap_chain_images: Vec<vk::Image>,
+    _swap_chain_image_format: vk::Format,
+    _swap_chain_extent: vk::Extent2D,
+    swap_chain_image_views: Vec<vk::ImageView>,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+    pipeline: vk::Pipeline,
+    swap_chain_framebuffers: Vec<vk::Framebuffer>,
+    command_buffers: Vec<vk::CommandBuffer>,
+    image_available_semaphores: Vec<vk::Semaphore>,
+    render_finished_semaphores: Vec<vk::Semaphore>,
+    in_flight_fences: Vec<vk::Fence>,
+    images_in_flight: Vec<Option<vk::Fence>>,
+    surface_loader: khr::Surface,
+    current_frame: usize,
+    framebuffer_resized: bool,
+    vertices: Vec<Vertex>,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
+}
+
+impl HelloTriangleApplication {
+    pub fn new(window: &Window) -> HelloTriangleApplication {
+        let context = VulkanContext::new(&window);
+        
+        let (swap_chain_ext, swap_chain, format, extent) = create_swap_chain(&context, window);
+        let mut swap_chain_images = get_swap_chain_images(&context, swap_chain);
+        let swap_chain_image_views = create_image_views(&mut swap_chain_images, format, &context);
+        let render_pass = create_render_pass(format, &context.device);
+        let (pipeline_layout, pipeline) = create_graphics_pipeline(&context.device, extent, render_pass);
+        let swap_chain_framebuffers = create_framebuffers(&swap_chain_image_views, &context.device, render_pass, extent);
+        let vertices = vec![
+            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0)),
+            Vertex::new(vec2(0.5, 0.5), vec3(1.0, 0.0, 1.0)),
+        ];
+        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
+        let vertex_count = vertices.len() as u32;
+        let command_buffers = create_command_buffers(&context, &swap_chain_framebuffers, render_pass, extent, pipeline, vertex_buffer, vertex_count);
+        let (image_available, render_finished, in_flight_fences, images_in_flight) = create_sync_objects(&context.device, swap_chain_image_views.len());
+        let surface_loader = khr::Surface::new(&context.entry, &context.instance);
+
+        HelloTriangleApplication {
+            context,
+            swap_chain_ext,
+            swap_chain,
+            _swap_chain_images: swap_chain_images,
+            _swap_chain_image_format: format,
+            _swap_chain_extent: extent,
+            swap_chain_image_views,
+            render_pass,
+            pipeline_layout,
+            pipeline,
+            swap_chain_framebuffers,
+            command_buffers,
+            image_available_semaphores: image_available,
+            render_finished_semaphores: render_finished,
+            in_flight_fences,
+            images_in_flight,
+            surface_loader,
+            current_frame: 0,
+            framebuffer_resized: false,
+            vertices,
+            vertex_buffer,
+            vertex_buffer_memory,
+        }
+    }
+
 
     pub fn recreate_swap_chain(&mut self, window: &Window) {
         unsafe { self.context.device.device_wait_idle().expect("Could not wait idle") };
         unsafe { self.cleanup_swap_chain() };
 
-        let (swap_chain_ext, swap_chain, format, extent) = create_swap_chain(&self.context, self.surface, window);
+        let (swap_chain_ext, swap_chain, format, extent) = create_swap_chain(&self.context, window);
         self.swap_chain = swap_chain;
         let mut swap_chain_images = get_swap_chain_images(&self.context, swap_chain);
         self.swap_chain_image_views = create_image_views(&mut swap_chain_images, format, &self.context);
@@ -266,7 +265,7 @@ impl HelloTriangleApplication {
         self.pipeline_layout = pipeline_layout;
         self.swap_chain_framebuffers = create_framebuffers(&self.swap_chain_image_views, &self.context.device, self.render_pass, extent);
         let vertex_count = self.vertices.len() as u32;
-        self.command_buffers = create_command_buffers(&self.context.device, &self.swap_chain_framebuffers, self.command_pool, self.render_pass, extent, pipeline, self.vertex_buffer, vertex_count);
+        self.command_buffers = create_command_buffers(&self.context, &self.swap_chain_framebuffers, self.render_pass, extent, pipeline, self.vertex_buffer, vertex_count);
         self.framebuffer_resized = false;
     }
 
@@ -317,7 +316,7 @@ impl HelloTriangleApplication {
         
         self.images_in_flight[image_index as usize] = None;
         unsafe { device.reset_fences(&fences) }.expect("Unable to reset fences");
-        unsafe { device.queue_submit(self.graphics_queue, &submits, *fence).expect("Unable to submit to queue") };
+        unsafe { device.queue_submit(self.context.graphics_queue, &submits, *fence).expect("Unable to submit to queue") };
 
         let swap_chains = [self.swap_chain];
         let image_indices = [image_index];
@@ -328,7 +327,7 @@ impl HelloTriangleApplication {
             .image_indices(&image_indices);
 
         unsafe { 
-            match self.swap_chain_ext.queue_present(self.present_queue, &present_info) {
+            match self.swap_chain_ext.queue_present(self.context.present_queue, &present_info) {
                 Ok(false) => if self.framebuffer_resized { return self.recreate_swap_chain(&window) }
                 Ok(true) => return self.recreate_swap_chain(&window),
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return self.recreate_swap_chain(&window),
@@ -344,7 +343,7 @@ impl HelloTriangleApplication {
             self.context.device.destroy_framebuffer(framebuffer, None);
         }
 
-        self.context.device.free_command_buffers(self.command_pool, &self.command_buffers);
+        self.context.device.free_command_buffers(self.context.command_pool, &self.command_buffers);
 
         self.context.device.destroy_pipeline(self.pipeline, None);
 
@@ -393,17 +392,10 @@ impl Drop for HelloTriangleApplication {
                 self.context.device.destroy_fence(fence, None);
             }
 
-            self.context.device.destroy_command_pool(self.command_pool, None);
+            self.context.device.destroy_command_pool(self.context.command_pool, None);
             // WARNING: self.command_pool is now invalid!
 
-            self.debug_messenger.map(|m| {
-                self.debug_utils.as_ref().map(|d| {
-                    d.destroy_debug_utils_messenger(m, None);
-                })
-            });
-            // WARNING: self.debug_messenger is now invalid!
-
-            self.surface_loader.destroy_surface(self.surface, None);
+            self.surface_loader.destroy_surface(self.context.surface, None);
             // WARNING: self.surface is now invalid!
 
             self.context.device.destroy_device(None);
@@ -517,6 +509,13 @@ fn create_vertex_buffer(context: &VulkanContext, vertices: &Vec<Vertex>) -> (vk:
     (vertex_buffer, vertex_buffer_memory)
 }
 
+fn copy_buffer(context: &VulkanContext, src: vk::Buffer, dst: vk::Buffer, size: vk::DeviceSize) {
+    let alloc_info = vk::CommandBufferAllocateInfo::builder()
+    .level(vk::CommandBufferLevel::PRIMARY)
+    .command_pool(context.command_pool);
+
+}
+
 // Semaphores
 fn create_sync_objects(device: &Device, swapchain_images_size: usize) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>, Vec<Option<vk::Fence>>) {
     let mut image_available_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
@@ -555,9 +554,12 @@ fn create_command_pool(queue_family_indices: QueueFamilyIndices, device: &Device
     unsafe { device.create_command_pool(&pool_info, None).expect("Unable to create command pool") }
 }
 
-fn create_command_buffers(device: &Device, swap_chain_framebuffers: &Vec<vk::Framebuffer>, command_pool: vk::CommandPool, render_pass: vk::RenderPass, extent: vk::Extent2D, graphics_pipeline: vk::Pipeline, vertex_buffer: vk::Buffer, vertex_count: u32) -> Vec<vk::CommandBuffer> {
+fn create_command_buffers(context: &VulkanContext, swap_chain_framebuffers: &Vec<vk::Framebuffer>, render_pass: vk::RenderPass, extent: vk::Extent2D, graphics_pipeline: vk::Pipeline, vertex_buffer: vk::Buffer, vertex_count: u32) -> Vec<vk::CommandBuffer> {
+    let device = &context.device;
+    let command_pool = &context.command_pool;
+
     let alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(command_pool)
+        .command_pool(*command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(swap_chain_framebuffers.len() as u32);
     
@@ -847,12 +849,12 @@ fn get_required_extensions_for_window(window: &Window, entry: &Entry) -> Vec<*co
 // Swap Chain
 fn create_swap_chain (
     context: &VulkanContext,
-    surface: vk::SurfaceKHR,
     window: &Window) -> (khr::Swapchain, vk::SwapchainKHR, vk::Format, vk::Extent2D) {
     let instance = &context.instance;
     let entry = &context.entry;
     let device = &context.device;
     let physical_device = context.physical_device;
+    let surface = context.surface;
 
     let swap_chain_support = SwapChainSupportDetails::query_swap_chain_support(instance, entry, physical_device, surface);
 

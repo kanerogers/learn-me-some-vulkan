@@ -149,7 +149,7 @@ impl HelloTriangleApplication {
         let vertices = vec![
             Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
             Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0)),
-            Vertex::new(vec2(0.5, 0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
             Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 0.0, 1.0)),
         ];
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
@@ -167,6 +167,8 @@ impl HelloTriangleApplication {
             pipeline,
             vertex_buffer,
             vertices.len(),
+            index_buffer,
+            indices.len(),
         );
 
         // Sync objects
@@ -330,6 +332,8 @@ impl HelloTriangleApplication {
             pipeline,
             self.vertex_buffer,
             self.vertices.len(),
+            self.index_buffer,
+            self.indices.len(),
         );
         self.framebuffer_resized = false;
     }
@@ -381,6 +385,11 @@ impl Drop for HelloTriangleApplication {
             self.context
                 .device
                 .free_memory(self.vertex_buffer_memory, None);
+
+            self.context.device.destroy_buffer(self.index_buffer, None);
+            self.context
+                .device
+                .free_memory(self.index_buffer_memory, None);
 
             for semaphore in self.render_finished_semaphores.drain(..) {
                 self.context.device.destroy_semaphore(semaphore, None);
@@ -692,6 +701,8 @@ fn create_command_buffers(
     graphics_pipeline: vk::Pipeline,
     vertex_buffer: vk::Buffer,
     vertex_count: usize,
+    index_buffer: vk::Buffer,
+    index_count: usize,
 ) -> Vec<vk::CommandBuffer> {
     let device = &context.device;
     let command_pool = &context.command_pool;
@@ -750,7 +761,8 @@ fn create_command_buffers(
                 graphics_pipeline,
             );
             device.cmd_bind_vertex_buffers(*command_buffer, 0, &vertex_buffers, &offsets);
-            device.cmd_draw(*command_buffer, vertex_count as u32, 1, 0, 0);
+            device.cmd_bind_index_buffer(*command_buffer, index_buffer, 0, vk::IndexType::UINT16);
+            device.cmd_draw_indexed(*command_buffer, index_count as u32, 1, 0, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device
                 .end_command_buffer(*command_buffer)

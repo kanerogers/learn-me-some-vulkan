@@ -12,7 +12,7 @@ use ash::{
 use byte_slice_cast::AsSliceOf;
 use cgmath::{vec2, vec3, Vector2, Vector3};
 use memoffset::offset_of;
-use std::{cmp, ffi::CString, mem::size_of};
+use std::{ffi::CString, mem::size_of};
 use swap_chain::SwapChain;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
@@ -126,6 +126,7 @@ struct HelloTriangleApplication {
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     swap_chain: SwapChain,
+    frame_buffers: Vec<vk::Framebuffer>,
 }
 
 impl HelloTriangleApplication {
@@ -136,11 +137,13 @@ impl HelloTriangleApplication {
         // Build the swapchain
         let mut swap_chain = SwapChain::new(&context, window);
 
-        // Create render pass, pipeline and framebuffers
+        // Create render pass, pipeline
         let render_pass = create_render_pass(swap_chain.format, &context.device);
         let (pipeline_layout, pipeline) =
             create_graphics_pipeline(&context.device, swap_chain.extent, render_pass);
-        swap_chain.create_framebuffers(&context, render_pass);
+
+        // Create swapchain framebuffers
+        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass);
 
         // Create vertex buffer
         let vertices = vec![
@@ -158,12 +161,12 @@ impl HelloTriangleApplication {
         // Command buffers
         let command_buffers = create_command_buffers(
             &context,
-            &swap_chain.frame_buffers,
+            &frame_buffers,
             render_pass,
             swap_chain.extent,
             pipeline,
             vertex_buffer,
-            vertices.len() as u32,
+            vertices.len(),
         );
 
         // Sync objects
@@ -189,6 +192,7 @@ impl HelloTriangleApplication {
             indices,
             index_buffer,
             index_buffer_memory,
+            frame_buffers,
         }
     }
 
@@ -298,8 +302,13 @@ impl HelloTriangleApplication {
                 .expect("Could not wait idle")
         };
 
+        // Remove the old swap chain
         unsafe { self.cleanup_swap_chain() };
+
+        // Create a new one
         self.swap_chain = SwapChain::new(&self.context, window);
+
+        // Build a render pass and pipeline
         self.render_pass = create_render_pass(self.swap_chain.format, &self.context.device);
         let (pipeline_layout, pipeline) = create_graphics_pipeline(
             &self.context.device,
@@ -308,17 +317,19 @@ impl HelloTriangleApplication {
         );
         self.pipeline = pipeline;
         self.pipeline_layout = pipeline_layout;
+
+        // Create framebuffers for the swapchain
         self.swap_chain
             .create_framebuffers(&self.context, self.render_pass);
-        let vertex_count = self.vertices.len() as u32;
+
         self.command_buffers = create_command_buffers(
             &self.context,
-            &self.swap_chain.frame_buffers,
+            &self.frame_buffers,
             self.render_pass,
             self.swap_chain.extent,
             pipeline,
             self.vertex_buffer,
-            vertex_count,
+            self.vertices.len(),
         );
         self.framebuffer_resized = false;
     }
@@ -328,7 +339,7 @@ impl HelloTriangleApplication {
     }
 
     pub unsafe fn cleanup_swap_chain(&mut self) {
-        for framebuffer in self.swap_chain.frame_buffers.drain(..) {
+        for framebuffer in self.frame_buffers.drain(..) {
             self.context.device.destroy_framebuffer(framebuffer, None);
         }
 
@@ -350,8 +361,9 @@ impl HelloTriangleApplication {
             self.context.device.destroy_image_view(view, None);
         }
 
-        let swapchain = khr::Swapchain::new(&self.context.instance, &self.context.device);
-        swapchain.destroy_swapchain(self.swap_chain.handle, None);
+        self.swap_chain
+            .loader
+            .destroy_swapchain(self.swap_chain.handle, None);
     }
 }
 
@@ -679,7 +691,7 @@ fn create_command_buffers(
     extent: vk::Extent2D,
     graphics_pipeline: vk::Pipeline,
     vertex_buffer: vk::Buffer,
-    vertex_count: u32,
+    vertex_count: usize,
 ) -> Vec<vk::CommandBuffer> {
     let device = &context.device;
     let command_pool = &context.command_pool;
@@ -738,7 +750,7 @@ fn create_command_buffers(
                 graphics_pipeline,
             );
             device.cmd_bind_vertex_buffers(*command_buffer, 0, &vertex_buffers, &offsets);
-            device.cmd_draw(*command_buffer, vertex_count, 1, 0, 0);
+            device.cmd_draw(*command_buffer, vertex_count as u32, 1, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device
                 .end_command_buffer(*command_buffer)

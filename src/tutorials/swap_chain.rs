@@ -1,7 +1,7 @@
 use std::cmp;
 
 use crate::QueueFamilyIndices;
-use ash::{extensions::khr, version::DeviceV1_0, vk, Device, Entry, Instance};
+use ash::{extensions::khr, version::DeviceV1_0, vk, Entry, Instance};
 use winit::window::Window;
 
 use crate::vulkan_context::VulkanContext;
@@ -13,7 +13,6 @@ pub struct SwapChain {
     pub format: vk::Format,
     pub extent: vk::Extent2D,
     pub image_views: Vec<vk::ImageView>,
-    pub frame_buffers: Vec<vk::Framebuffer>,
 }
 
 impl SwapChain {
@@ -29,7 +28,6 @@ impl SwapChain {
             format,
             extent,
             image_views,
-            frame_buffers: Vec::new(),
         }
     }
     // Frame Buffers

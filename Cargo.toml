@@ -99,3 +99,7 @@ path = "src/tutorials/19_staging_buffer.rs"
 [[bin]]
 name = "20"
 path = "src/tutorials/20_index_buffer.rs"
+
+[[bin]]
+name = "21"
+path = "src/tutorials/21_descriptor_layout.rs"

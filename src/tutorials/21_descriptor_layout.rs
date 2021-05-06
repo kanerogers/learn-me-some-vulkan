@@ -10,9 +10,9 @@ use ash::{
     vk, Device, Entry, Instance,
 };
 use byte_slice_cast::AsSliceOf;
-use cgmath::{vec2, vec3, Matrix4, Vector2, Vector3};
+use cgmath::{perspective, vec2, vec3, Deg, Matrix4, Point3, Vector2, Vector3};
 use memoffset::offset_of;
-use std::{ffi::CString, mem::size_of};
+use std::{ffi::CString, mem::size_of, time::Instant};
 use swap_chain::SwapChain;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
@@ -136,6 +136,8 @@ struct HelloTriangleApplication {
     swap_chain: SwapChain,
     frame_buffers: Vec<vk::Framebuffer>,
     descriptor_set_layout: vk::DescriptorSetLayout,
+    uniform_buffers: Vec<vk::Buffer>,
+    uniform_buffers_memory: Vec<vk::DeviceMemory>,
 }
 
 impl HelloTriangleApplication {
@@ -167,6 +169,9 @@ impl HelloTriangleApplication {
         // Index buffer
         let indices = vec![0, 1, 2, 2, 3, 0];
         let (index_buffer, index_buffer_memory) = create_index_buffer(&context, &indices);
+
+        let (uniform_buffers, uniform_buffers_memory) =
+            create_uniform_buffers(&context, &swap_chain);
 
         // Command buffers
         let command_buffers = create_command_buffers(
@@ -206,32 +211,26 @@ impl HelloTriangleApplication {
             index_buffer_memory,
             frame_buffers,
             descriptor_set_layout,
+            uniform_buffers,
+            uniform_buffers_memory,
         }
     }
 
     pub fn draw_frame(&mut self, window: &Window) {
-        let device = &self.context.device;
-        let instance = &self.context.instance;
-
         let fence = self
             .in_flight_fences
             .get(self.current_frame)
             .expect("Unable to get fence!");
         let fences = [*fence];
 
-        unsafe { device.wait_for_fences(&fences, true, u64::MAX) }
+        unsafe { self.context.device.wait_for_fences(&fences, true, u64::MAX) }
             .expect("Unable to wait for fence");
 
-        let image_available_semaphore = self
-            .image_available_semaphores
-            .get(self.current_frame)
-            .expect("Unable to get image_available semaphore for frame!");
-        let render_finished_semaphore = self
-            .render_finished_semaphores
-            .get(self.current_frame)
-            .expect("Unable to get render_finished semaphore");
-
         let image_index = unsafe {
+            let image_available_semaphore = self
+                .image_available_semaphores
+                .get(self.current_frame)
+                .expect("Unable to get image_available semaphore for frame!");
             match self.swap_chain.loader.acquire_next_image(
                 self.swap_chain.handle,
                 u64::MAX,
@@ -248,12 +247,28 @@ impl HelloTriangleApplication {
             unsafe { self.images_in_flight.get_unchecked(image_index as usize) }
         {
             let fences = [*image_in_flight_fence];
-            unsafe { device.wait_for_fences(&fences, true, u64::MAX) }
+            unsafe { self.context.device.wait_for_fences(&fences, true, u64::MAX) }
                 .expect("Unable to wait for image_in_flight_fence");
         }
 
-        self.images_in_flight[image_index as usize] = Some(*fence);
+        self.update_uniform_buffer(image_index);
 
+        let render_finished_semaphore = self
+            .render_finished_semaphores
+            .get(self.current_frame)
+            .expect("Unable to get render_finished semaphore");
+        let image_available_semaphore = self
+            .image_available_semaphores
+            .get(self.current_frame)
+            .expect("Unable to get image_available semaphore for frame!");
+
+        let fence = self
+            .in_flight_fences
+            .get(self.current_frame)
+            .expect("Unable to get fence!");
+        let fences = [*fence];
+
+        self.images_in_flight[image_index as usize] = Some(*fence);
         let wait_semaphores = [*image_available_semaphore];
         let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
 
@@ -272,9 +287,10 @@ impl HelloTriangleApplication {
         let submits = [submit_info];
 
         self.images_in_flight[image_index as usize] = None;
-        unsafe { device.reset_fences(&fences) }.expect("Unable to reset fences");
+        unsafe { self.context.device.reset_fences(&fences) }.expect("Unable to reset fences");
         unsafe {
-            device
+            self.context
+                .device
                 .queue_submit(self.context.graphics_queue, &submits, *fence)
                 .expect("Unable to submit to queue")
         };
@@ -346,7 +362,42 @@ impl HelloTriangleApplication {
             self.index_buffer,
             self.indices.len(),
         );
+
+        // UBOs
+        let (uniform_buffers, uniform_buffers_memory) =
+            create_uniform_buffers(&self.context, &self.swap_chain);
+        self.uniform_buffers = uniform_buffers;
+        self.uniform_buffers_memory = uniform_buffers_memory;
+
         self.framebuffer_resized = false;
+    }
+
+    pub fn update_uniform_buffer(&mut self, image_index: u32) {
+        let start_time = Instant::now();
+        let current_time = Instant::now();
+        let delta = current_time.duration_since(start_time).as_secs_f32();
+        let angle = Deg(90.0 * delta);
+        let model = Matrix4::from_angle_z(angle);
+
+        let eye = Point3::new(2.0, 2.0, 2.0);
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let up = vec3(0.0, 0.0, 1.0);
+        let view = Matrix4::look_at_lh(eye, center, up);
+
+        let fovy = Deg(45.0);
+        let aspect = self.swap_chain.extent.width / self.swap_chain.extent.height;
+        let near = 0.1;
+        let far = 10.0;
+        let projection = perspective(fovy, aspect as f32, near, far);
+
+        let ubo = UniformBufferObject {
+            model,
+            view,
+            projection,
+        };
+
+        let memory = self.uniform_buffers_memory[image_index as usize];
+        unsafe { copy_pointer_to_device_memory(&self.context, &ubo, memory, 1) }
     }
 
     pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
@@ -379,6 +430,14 @@ impl HelloTriangleApplication {
         self.swap_chain
             .loader
             .destroy_swapchain(self.swap_chain.handle, None);
+
+        for buffer in self.uniform_buffers.drain(..) {
+            self.context.device.destroy_buffer(buffer, None);
+        }
+
+        for memory in self.uniform_buffers_memory.drain(..) {
+            self.context.device.free_memory(memory, None)
+        }
     }
 }
 
@@ -572,6 +631,20 @@ fn create_index_buffer(
     create_buffer_from_data(context, vk::BufferUsageFlags::INDEX_BUFFER, indices)
 }
 
+fn create_uniform_buffers(
+    context: &VulkanContext,
+    swap_chain: &SwapChain,
+) -> (Vec<vk::Buffer>, Vec<vk::DeviceMemory>) {
+    let size = size_of::<UniformBufferObject>() as u64;
+    let usage = vk::BufferUsageFlags::UNIFORM_BUFFER;
+    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+    let buffer_count = swap_chain.images.len();
+
+    (0..buffer_count)
+        .map(|_| create_buffer(context, size, usage, properties))
+        .unzip()
+}
+
 fn create_buffer_from_data<T>(
     context: &VulkanContext,
     final_usage: vk::BufferUsageFlags,
@@ -583,15 +656,8 @@ fn create_buffer_from_data<T>(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
     let (staging_buffer, staging_memory) =
         create_buffer(context, size, staging_usage, staging_properties);
-    unsafe {
-        let dst = context
-            .device
-            .map_memory(staging_memory, 0, size, vk::MemoryMapFlags::empty())
-            .expect("Unable to map memory");
-        let dst = dst as *mut T;
-        std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
-        context.device.unmap_memory(staging_memory)
-    }
+
+    unsafe { copy_pointer_to_device_memory(context, data.as_ptr(), staging_memory, data.len()) }
 
     let final_usage = final_usage | vk::BufferUsageFlags::TRANSFER_DST;
     let final_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
@@ -605,6 +671,22 @@ fn create_buffer_from_data<T>(
     }
 
     (final_buffer, final_buffer_memory)
+}
+
+unsafe fn copy_pointer_to_device_memory<T>(
+    context: &VulkanContext,
+    src: *const T,
+    memory: vk::DeviceMemory,
+    count: usize,
+) {
+    let size = size_of::<T>() as u64;
+    let dst = context
+        .device
+        .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
+        .expect("Unable to map memory");
+    let dst = dst as *mut T;
+    std::ptr::copy_nonoverlapping(src, dst, count);
+    context.device.unmap_memory(memory)
 }
 
 fn copy_buffer(

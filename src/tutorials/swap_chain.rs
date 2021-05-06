@@ -183,7 +183,7 @@ fn create_image_views(
     context: &VulkanContext,
 ) -> Vec<vk::ImageView> {
     swap_chain_images
-        .drain(..)
+        .iter()
         .map(|image| {
             let components = vk::ComponentMapping::builder()
                 .r(vk::ComponentSwizzle::IDENTITY)
@@ -201,7 +201,7 @@ fn create_image_views(
                 .build();
 
             let create_info = vk::ImageViewCreateInfo::builder()
-                .image(image)
+                .image(*image)
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(format)
                 .components(components)

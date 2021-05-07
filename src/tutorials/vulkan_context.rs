@@ -106,6 +106,7 @@ impl VulkanContext {
         (instance, entry, debug_utils, messenger)
     }
 
+    // Images
     pub fn create_image(
         &self,
         width: u32,
@@ -154,185 +155,252 @@ impl VulkanContext {
         (texture_image, texture_image_memory)
     }
 
-pub fn find_memory_type(
-    &self,
-    type_filter: u32,
-    properties: vk::MemoryPropertyFlags,
-) -> u32 {
-    let device_memory_properties = unsafe {
-        self
-            .instance
-            .get_physical_device_memory_properties(self.physical_device)
-    };
-    for i in 0..device_memory_properties.memory_type_count {
-        let has_type = type_filter & (1 << i) != 0;
-        let has_properties = device_memory_properties.memory_types[i as usize]
-            .property_flags
-            .contains(properties);
-        if has_type && has_properties {
-            return i;
+    pub fn transition_image_layout(&self, image: vk::Image, format: vk::Format, old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) {
+        let command_buffer = self.begin_single_time_commands();
+        let subresource_range = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .build();
+
+        let src_stage_mask = todo!();
+        let dst_stage_mask = todo!();
+        let dependency_flags = vk::DependencyFlags::empty();
+        let image_memory_barriers = &[barrier];
+
+        unsafe { self.device.cmd_pipeline_barrier(command_buffer, src_stage_mask, dst_stage_mask, dependency_flags, &[], &[], image_memory_barriers)};
+    }
+
+    pub fn copy_buffer_to_image(&self, src_buffer: vk::Buffer, dst_image: vk::Image, image_extent: vk::Extent3D) {
+        let command_buffer = self.begin_single_time_commands();
+
+        let image_subresource = vk::ImageSubresourceLayers::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(1)
+            .build();
+        
+        let region = vk::BufferImageCopy::builder()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(image_subresource)
+            .image_extent(image_extent)
+            .build();
+
+        let regions = &[region];
+        let dst_image_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+
+        unsafe { self.device.cmd_copy_buffer_to_image(command_buffer, src_buffer, dst_image, dst_image_layout, regions)};
+
+        self.end_single_time_commands(command_buffer);
+    }
+
+    // Memory
+    pub fn find_memory_type(
+        &self,
+        type_filter: u32,
+        properties: vk::MemoryPropertyFlags,
+    ) -> u32 {
+        let device_memory_properties = unsafe {
+            self
+                .instance
+                .get_physical_device_memory_properties(self.physical_device)
+        };
+        for i in 0..device_memory_properties.memory_type_count {
+            let has_type = type_filter & (1 << i) != 0;
+            let has_properties = device_memory_properties.memory_types[i as usize]
+                .property_flags
+                .contains(properties);
+            if has_type && has_properties {
+                return i;
+            }
         }
+
+        panic!("Unable to find suitable memory type")
     }
 
-    panic!("Unable to find suitable memory type")
-}
+    // Buffers
+    pub fn create_buffer(
+        &self,
+        size: vk::DeviceSize,
+        usage: vk::BufferUsageFlags,
+        properties: vk::MemoryPropertyFlags,
+    ) -> (vk::Buffer, vk::DeviceMemory) {
+        let create_info = vk::BufferCreateInfo::builder()
+            .size(size)
+            .usage(usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-// Buffers
-pub fn create_buffer(
-    &self,
-    size: vk::DeviceSize,
-    usage: vk::BufferUsageFlags,
-    properties: vk::MemoryPropertyFlags,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let create_info = vk::BufferCreateInfo::builder()
-        .size(size)
-        .usage(usage)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        let buffer = unsafe {
+            self
+                .device
+                .create_buffer(&create_info, None)
+                .expect("Unable to create buffer")
+        };
 
-    let buffer = unsafe {
-        self
-            .device
-            .create_buffer(&create_info, None)
-            .expect("Unable to create buffer")
-    };
+        let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
 
-    let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
+        let memory_type = self.find_memory_type(requirements.memory_type_bits, properties);
+        let alloc_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type)
+            .build();
 
-    let memory_type = self.find_memory_type(requirements.memory_type_bits, properties);
-    let alloc_info = vk::MemoryAllocateInfo::builder()
-        .allocation_size(requirements.size)
-        .memory_type_index(memory_type)
-        .build();
+        let device_memory = unsafe {
+            self
+                .device
+                .allocate_memory(&alloc_info, None)
+                .expect("Unable to allocate memory")
+        };
+        unsafe {
+            self
+                .device
+                .bind_buffer_memory(buffer, device_memory, 0)
+                .expect("Unable to bind memory");
+        }
 
-    let device_memory = unsafe {
-        self
-            .device
-            .allocate_memory(&alloc_info, None)
-            .expect("Unable to allocate memory")
-    };
-    unsafe {
-        self
-            .device
-            .bind_buffer_memory(buffer, device_memory, 0)
-            .expect("Unable to bind memory");
+        (buffer, device_memory)
     }
 
-    (buffer, device_memory)
-}
-
-pub unsafe fn copy_pointer_to_device_memory<T>(
-    &self,
-    src: *const T,
-    memory: vk::DeviceMemory,
-    count: usize,
-) {
-    let size = size_of::<T>() as u64;
-    let dst = self
-        .device
-        .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
-        .expect("Unable to map memory");
-    let dst = dst as *mut T;
-    std::ptr::copy_nonoverlapping(src, dst, count);
-    self.device.unmap_memory(memory)
-}
-
-pub fn copy_buffer(
-    &self,
-    src_buffer: vk::Buffer,
-    dst_buffer: vk::Buffer,
-    size: vk::DeviceSize,
-) {
-    let alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_buffer_count(1)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_pool(self.command_pool);
-
-    let command_buffer = unsafe {
-        self
+    pub unsafe fn copy_pointer_to_device_memory<T>(
+        &self,
+        src: *const T,
+        memory: vk::DeviceMemory,
+        count: usize,
+    ) {
+        let size = size_of::<T>() as u64;
+        let dst = self
             .device
-            .allocate_command_buffers(&alloc_info)
-            .map(|mut b| b.pop().unwrap())
-            .expect("Unable to allocate command buffer")
-    };
-
-    let begin_info =
-        vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-    unsafe {
-        self
-            .device
-            .begin_command_buffer(command_buffer, &begin_info)
-            .expect("Unable to begin command buffer")
+            .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
+            .expect("Unable to map memory");
+        let dst = dst as *mut T;
+        std::ptr::copy_nonoverlapping(src, dst, count);
+        self.device.unmap_memory(memory)
     }
 
-    let copy_region = vk::BufferCopy::builder()
-        .src_offset(0)
-        .dst_offset(0)
-        .size(size)
-        .build();
+    pub fn copy_buffer(
+        &self,
+        src_buffer: vk::Buffer,
+        dst_buffer: vk::Buffer,
+        size: vk::DeviceSize,
+    ) {
+        let command_buffer = self.begin_single_time_commands();
 
-    let regions = [copy_region];
+        let copy_region = vk::BufferCopy::builder()
+            .src_offset(0)
+            .dst_offset(0)
+            .size(size)
+            .build();
 
-    unsafe {
-        self
-            .device
-            .cmd_copy_buffer(command_buffer, src_buffer, dst_buffer, &regions);
-        self
-            .device
-            .end_command_buffer(command_buffer)
-            .expect("Unable to end command buffer");
+        let regions = [copy_region];
+
+        unsafe {
+            self
+                .device
+                .cmd_copy_buffer(command_buffer, src_buffer, dst_buffer, &regions);
+        }
+
+        self.end_single_time_commands(command_buffer);
     }
 
-    let command_buffers = &[command_buffer];
+    pub fn create_buffer_from_data<T>(
+        &self,
+        final_usage: vk::BufferUsageFlags,
+        data: &Vec<T>,
+    ) -> (vk::Buffer, vk::DeviceMemory) {
+        let size = (size_of::<T>() * data.len()) as u64;
+        let staging_usage = vk::BufferUsageFlags::TRANSFER_SRC;
+        let staging_properties =
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+        let (staging_buffer, staging_memory) =
+            self.create_buffer(size, staging_usage, staging_properties);
 
-    let submit_info = vk::SubmitInfo::builder()
-        .command_buffers(command_buffers)
-        .build();
+        unsafe { self.copy_pointer_to_device_memory(data.as_ptr(), staging_memory, data.len()) }
 
-    let submit_info = &[submit_info];
+        let final_usage = final_usage | vk::BufferUsageFlags::TRANSFER_DST;
+        let final_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
+        let (final_buffer, final_buffer_memory) =
+            self.create_buffer(size, final_usage, final_properties);
+        self.copy_buffer(staging_buffer, final_buffer, size);
 
-    unsafe {
-        self
-            .device
-            .queue_submit(self.graphics_queue, submit_info, vk::Fence::null())
-            .expect("Unable to submit to queue");
-        self
-            .device
-            .queue_wait_idle(self.graphics_queue)
-            .expect("Unable to wait idle");
-        self
-            .device
-            .free_command_buffers(self.command_pool, command_buffers)
-    }
-}
+        unsafe {
+            self.device.destroy_buffer(staging_buffer, None);
+            self.device.free_memory(staging_memory, None);
+        }
 
-pub fn create_buffer_from_data<T>(
-    &self,
-    final_usage: vk::BufferUsageFlags,
-    data: &Vec<T>,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let size = (size_of::<T>() * data.len()) as u64;
-    let staging_usage = vk::BufferUsageFlags::TRANSFER_SRC;
-    let staging_properties =
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-    let (staging_buffer, staging_memory) =
-        self.create_buffer(size, staging_usage, staging_properties);
-
-    unsafe { self.copy_pointer_to_device_memory(data.as_ptr(), staging_memory, data.len()) }
-
-    let final_usage = final_usage | vk::BufferUsageFlags::TRANSFER_DST;
-    let final_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
-    let (final_buffer, final_buffer_memory) =
-        self.create_buffer(size, final_usage, final_properties);
-    self.copy_buffer(staging_buffer, final_buffer, size);
-
-    unsafe {
-        self.device.destroy_buffer(staging_buffer, None);
-        self.device.free_memory(staging_memory, None);
+        (final_buffer, final_buffer_memory)
     }
 
-    (final_buffer, final_buffer_memory)
-}
+    // Command buffers
+    pub fn begin_single_time_commands(&self) -> vk::CommandBuffer {
+        let alloc_info = vk::CommandBufferAllocateInfo::builder()
+            .command_buffer_count(1)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_pool(self.command_pool);
+
+        let command_buffer = unsafe {
+            self
+                .device
+                .allocate_command_buffers(&alloc_info)
+                .map(|mut b| b.pop().unwrap())
+                .expect("Unable to allocate command buffer")
+        };
+
+        let begin_info =
+            vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe {
+            self
+                .device
+                .begin_command_buffer(command_buffer, &begin_info)
+                .expect("Unable to begin command buffer")
+        }
+
+        command_buffer
+    }
+
+    pub fn end_single_time_commands(&self, command_buffer: vk::CommandBuffer) {
+        unsafe {
+            self
+                .device
+                .end_command_buffer(command_buffer)
+                .expect("Unable to end command buffer");
+        }
+
+        let command_buffers = &[command_buffer];
+
+        let submit_info = vk::SubmitInfo::builder()
+            .command_buffers(command_buffers)
+            .build();
+
+        let submit_info = &[submit_info];
+
+        unsafe {
+            self
+                .device
+                .queue_submit(self.graphics_queue, submit_info, vk::Fence::null())
+                .expect("Unable to submit to queue");
+            self
+                .device
+                .queue_wait_idle(self.graphics_queue)
+                .expect("Unable to wait idle");
+            self
+                .device
+                .free_command_buffers(self.command_pool, command_buffers)
+        }
+
+    }
 }
 
 // Surface

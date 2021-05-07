@@ -500,14 +500,18 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
     let size = buf.len() * 8;
 
     let usage = vk::BufferUsageFlags::TRANSFER_SRC;
-    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-    let (staging_buffer, staging_memory) = context.create_buffer(size as u64, usage, properties);
+    let staging_properties =
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+    let (staging_buffer, staging_memory) =
+        context.create_buffer(size as u64, usage, staging_properties);
     unsafe { context.copy_pointer_to_device_memory(buf.as_ptr(), staging_memory, buf.len()) };
     let format = vk::Format::R8G8B8A8_SRGB;
     let tiling = vk::ImageTiling::OPTIMAL;
 
+    let image_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
+
     let (texture_image, texture_image_memory) =
-        context.create_image(width, height, properties, format, tiling);
+        context.create_image(width, height, image_properties, format, tiling);
 
     (texture_image, texture_image_memory)
 }

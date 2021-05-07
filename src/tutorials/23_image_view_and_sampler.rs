@@ -81,11 +81,16 @@ struct UniformBufferObject {
 struct Vertex {
     pos: Vector2<f32>,
     colour: Vector3<f32>,
+    texture_coordinate: Vector2<f32>,
 }
 
 impl Vertex {
-    fn new(pos: Vector2<f32>, colour: Vector3<f32>) -> Self {
-        Self { pos, colour }
+    fn new(pos: Vector2<f32>, colour: Vector3<f32>, texture_coordinate: Vector2<f32>) -> Self {
+        Self {
+            pos,
+            colour,
+            texture_coordinate,
+        }
     }
     fn get_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::builder()
@@ -94,7 +99,7 @@ impl Vertex {
             .input_rate(vk::VertexInputRate::VERTEX)
             .build()
     }
-    fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
         let position_attribute = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(0)
@@ -109,7 +114,18 @@ impl Vertex {
             .offset(offset_of!(Vertex, colour) as u32)
             .build();
 
-        [position_attribute, colour_attribute]
+        let texture_coordinate_attribute = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(2)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(offset_of!(Vertex, texture_coordinate) as u32)
+            .build();
+
+        [
+            position_attribute,
+            colour_attribute,
+            texture_coordinate_attribute,
+        ]
     }
 }
 
@@ -173,10 +189,10 @@ impl HelloTriangleApplication {
 
         // Create vertex buffer
         let vertices = vec![
-            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0)),
-            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0)),
-            Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
-            Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 0.0, 1.0)),
+            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
+            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
+            Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
+            Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
         ];
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
 
@@ -423,16 +439,17 @@ impl HelloTriangleApplication {
         let angle = Deg(90.0 * delta);
         let model = Matrix4::from_angle_z(angle);
 
-        let eye = Point3::new(2.0, 2.0, 2.0);
+        let eye = Point3::new(0.0, 0.0, 3.0);
         let center = Point3::new(0.0, 0.0, 0.0);
-        let up = vec3(0.0, 0.0, 1.0);
+        let up = vec3(0.0, 1.0, 0.0);
         let view = Matrix4::look_at_rh(eye, center, up);
 
         let fovy = Deg(45.0);
         let aspect = self.swap_chain.extent.width / self.swap_chain.extent.height;
         let near = 0.1;
         let far = 10.0;
-        let projection = perspective(fovy, aspect as f32, near, far);
+        let mut projection = perspective(fovy, aspect as f32, near, far);
+        projection[1][1] *= -1.0;
 
         let ubo = UniformBufferObject {
             model,
@@ -1016,7 +1033,7 @@ fn create_graphics_pipeline(
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.0)
         .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::CLOCKWISE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
         .depth_bias_enable(false);
 
     let multisampling_create_info = vk::PipelineMultisampleStateCreateInfo::builder()

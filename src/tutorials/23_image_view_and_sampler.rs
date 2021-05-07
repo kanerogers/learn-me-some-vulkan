@@ -194,6 +194,8 @@ impl HelloTriangleApplication {
             &uniform_buffers,
             &descriptor_pool,
             descriptor_set_layout,
+            texture_image_view,
+            texture_sampler,
         );
 
         // Command buffers
@@ -395,6 +397,8 @@ impl HelloTriangleApplication {
             &self.uniform_buffers,
             &self.descriptor_pool,
             self.descriptor_set_layout,
+            self.texture_image_view,
+            self.texture_sampler,
         );
 
         self.command_buffers = create_command_buffers(
@@ -569,18 +573,20 @@ fn create_descriptor_sets(
     uniform_buffers: &Vec<vk::Buffer>,
     descriptor_pool: &vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
+    texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
 ) -> Vec<vk::DescriptorSet> {
     let layouts = (0..uniform_buffers.len())
         .map(|_| descriptor_set_layout.clone())
         .collect::<Vec<_>>();
 
-    let alloc_info = vk::DescriptorSetAllocateInfo::builder()
+    let buffer_info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(*descriptor_pool)
         .set_layouts(&layouts);
     let descriptor_sets = unsafe {
         context
             .device
-            .allocate_descriptor_sets(&alloc_info)
+            .allocate_descriptor_sets(&buffer_info)
             .expect("Unable to allocate descriptor sets")
     };
 
@@ -592,7 +598,13 @@ fn create_descriptor_sets(
             .offset(0)
             .build();
 
-        let descriptor_write = vk::WriteDescriptorSet::builder()
+        let image_info = vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(texture_image_view)
+            .sampler(texture_sampler)
+            .build();
+
+        let ubo_descriptor_write = vk::WriteDescriptorSet::builder()
             .dst_set(*descriptor_set)
             .dst_binding(0)
             .dst_array_element(0)
@@ -600,10 +612,18 @@ fn create_descriptor_sets(
             .buffer_info(&[buffer_info])
             .build();
 
+        let sampler_descriptor_write = vk::WriteDescriptorSet::builder()
+            .dst_set(*descriptor_set)
+            .dst_binding(1)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&[image_info])
+            .build();
+
         unsafe {
             context
                 .device
-                .update_descriptor_sets(&[descriptor_write], &[])
+                .update_descriptor_sets(&[ubo_descriptor_write, sampler_descriptor_write], &[])
         }
     }
 
@@ -613,11 +633,17 @@ fn create_descriptor_sets(
 fn create_descriptor_pool(context: &VulkanContext, swap_chain: &SwapChain) -> vk::DescriptorPool {
     let size = swap_chain.images.len() as u32;
     assert!(size > 0);
-    let pool_size = vk::DescriptorPoolSize::builder()
+    let ubo_pool_size = vk::DescriptorPoolSize::builder()
         .ty(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(size)
         .build();
-    let pool_sizes = [pool_size];
+    let sampler_pool_size = vk::DescriptorPoolSize::builder()
+        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(size)
+        .build();
+
+    let pool_sizes = [ubo_pool_size, sampler_pool_size];
+
     let create_info = vk::DescriptorPoolCreateInfo::builder()
         .pool_sizes(&pool_sizes)
         .max_sets(size);
@@ -631,14 +657,21 @@ fn create_descriptor_pool(context: &VulkanContext, swap_chain: &SwapChain) -> vk
 }
 
 fn create_descriptor_set_layout(context: &VulkanContext) -> vk::DescriptorSetLayout {
-    let binding = vk::DescriptorSetLayoutBinding::builder()
+    let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
         .binding(0)
         .descriptor_count(1)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .stage_flags(vk::ShaderStageFlags::VERTEX)
         .build();
 
-    let bindings = [binding];
+    let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_count(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+        .build();
+
+    let bindings = [ubo_binding, sampler_binding];
 
     let create_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
 

@@ -141,6 +141,8 @@ struct HelloTriangleApplication {
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
     descriptor_pool: vk::DescriptorPool,
     start_time: Instant,
+    texture_image: vk::Image,
+    texture_image_memory: vk::DeviceMemory,
     texture_image_view: vk::ImageView,
 }
 
@@ -167,7 +169,7 @@ impl HelloTriangleApplication {
         let frame_buffers = swap_chain.create_framebuffers(&context, render_pass);
 
         // Create texture image
-        let texture_image = create_texture_image(&context);
+        let (texture_image, texture_image_memory) = create_texture_image(&context);
         let texture_image_view = create_texture_image_view(&context, texture_image);
 
         // Create vertex buffer
@@ -240,6 +242,8 @@ impl HelloTriangleApplication {
             descriptor_pool,
             start_time,
             texture_image_view,
+            texture_image,
+            texture_image_memory,
         }
     }
 
@@ -435,7 +439,7 @@ impl HelloTriangleApplication {
         };
 
         let memory = self.uniform_buffers_memory[image_index as usize];
-        unsafe { copy_pointer_to_device_memory(&self.context, &ubo, memory, 1) }
+        unsafe { self.context.copy_pointer_to_device_memory(&ubo, memory, 1) }
     }
 
     pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
@@ -483,8 +487,29 @@ impl HelloTriangleApplication {
     }
 }
 
-fn create_texture_image(context: &VulkanContext) -> vk::Image {
-    todo!()
+fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory) {
+    let img = image::io::Reader::open("./src/tutorials/images/texture.jpg")
+        .expect("Unable to read image")
+        .decode()
+        .expect("Unable to read image")
+        .to_rgba8();
+
+    let width = img.width();
+    let height = img.height();
+    let buf = img.into_raw();
+    let size = buf.len() * 8;
+
+    let usage = vk::BufferUsageFlags::TRANSFER_SRC;
+    let properties = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+    let (staging_buffer, staging_memory) = context.create_buffer(size as u64, usage, properties);
+    unsafe { context.copy_pointer_to_device_memory(buf.as_ptr(), staging_memory, buf.len()) };
+    let format = vk::Format::R8G8B8A8_SRGB;
+    let tiling = vk::ImageTiling::OPTIMAL;
+
+    let (texture_image, texture_image_memory) =
+        context.create_image(width, height, properties, format, tiling);
+
+    (texture_image, texture_image_memory)
 }
 
 fn create_texture_image_view(context: &VulkanContext, texture_image: vk::Image) -> vk::ImageView {
@@ -664,87 +689,18 @@ fn main_loop(event_loop: EventLoop<()>, window: Window, mut app: HelloTriangleAp
     });
 }
 
-fn find_memory_type(
-    instance: &Instance,
-    physical_device: &vk::PhysicalDevice,
-    type_filter: u32,
-    properties: vk::MemoryPropertyFlags,
-) -> u32 {
-    let device_memory_properties =
-        unsafe { instance.get_physical_device_memory_properties(*physical_device) };
-    for i in 0..device_memory_properties.memory_type_count {
-        let has_type = type_filter & (1 << i) != 0;
-        let has_properties = device_memory_properties.memory_types[i as usize]
-            .property_flags
-            .contains(properties);
-        if has_type && has_properties {
-            return i;
-        }
-    }
-
-    panic!("Unable to find suitable memory type")
-}
-
-// Buffers
-fn create_buffer(
-    context: &VulkanContext,
-    size: vk::DeviceSize,
-    usage: vk::BufferUsageFlags,
-    properties: vk::MemoryPropertyFlags,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let create_info = vk::BufferCreateInfo::builder()
-        .size(size)
-        .usage(usage)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-    let buffer = unsafe {
-        context
-            .device
-            .create_buffer(&create_info, None)
-            .expect("Unable to create buffer")
-    };
-
-    let requirements = unsafe { context.device.get_buffer_memory_requirements(buffer) };
-
-    let memory_type = find_memory_type(
-        &context.instance,
-        &context.physical_device,
-        requirements.memory_type_bits,
-        properties,
-    );
-    let alloc_info = vk::MemoryAllocateInfo::builder()
-        .allocation_size(requirements.size)
-        .memory_type_index(memory_type)
-        .build();
-
-    let device_memory = unsafe {
-        context
-            .device
-            .allocate_memory(&alloc_info, None)
-            .expect("Unable to allocate memory")
-    };
-    unsafe {
-        context
-            .device
-            .bind_buffer_memory(buffer, device_memory, 0)
-            .expect("Unable to bind memory");
-    }
-
-    (buffer, device_memory)
-}
-
 fn create_vertex_buffer(
     context: &VulkanContext,
     vertices: &Vec<Vertex>,
 ) -> (vk::Buffer, vk::DeviceMemory) {
-    create_buffer_from_data(context, vk::BufferUsageFlags::VERTEX_BUFFER, vertices)
+    context.create_buffer_from_data(vk::BufferUsageFlags::VERTEX_BUFFER, vertices)
 }
 
 fn create_index_buffer(
     context: &VulkanContext,
     indices: &Vec<u16>,
 ) -> (vk::Buffer, vk::DeviceMemory) {
-    create_buffer_from_data(context, vk::BufferUsageFlags::INDEX_BUFFER, indices)
+    context.create_buffer_from_data(vk::BufferUsageFlags::INDEX_BUFFER, indices)
 }
 
 fn create_uniform_buffers(
@@ -757,122 +713,8 @@ fn create_uniform_buffers(
     let buffer_count = swap_chain.images.len();
 
     (0..buffer_count)
-        .map(|_| create_buffer(context, size, usage, properties))
+        .map(|_| context.create_buffer(size, usage, properties))
         .unzip()
-}
-
-fn create_buffer_from_data<T>(
-    context: &VulkanContext,
-    final_usage: vk::BufferUsageFlags,
-    data: &Vec<T>,
-) -> (vk::Buffer, vk::DeviceMemory) {
-    let size = (size_of::<T>() * data.len()) as u64;
-    let staging_usage = vk::BufferUsageFlags::TRANSFER_SRC;
-    let staging_properties =
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-    let (staging_buffer, staging_memory) =
-        create_buffer(context, size, staging_usage, staging_properties);
-
-    unsafe { copy_pointer_to_device_memory(context, data.as_ptr(), staging_memory, data.len()) }
-
-    let final_usage = final_usage | vk::BufferUsageFlags::TRANSFER_DST;
-    let final_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
-    let (final_buffer, final_buffer_memory) =
-        create_buffer(context, size, final_usage, final_properties);
-    copy_buffer(context, staging_buffer, final_buffer, size);
-
-    unsafe {
-        context.device.destroy_buffer(staging_buffer, None);
-        context.device.free_memory(staging_memory, None);
-    }
-
-    (final_buffer, final_buffer_memory)
-}
-
-unsafe fn copy_pointer_to_device_memory<T>(
-    context: &VulkanContext,
-    src: *const T,
-    memory: vk::DeviceMemory,
-    count: usize,
-) {
-    let size = size_of::<T>() as u64;
-    let dst = context
-        .device
-        .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
-        .expect("Unable to map memory");
-    let dst = dst as *mut T;
-    std::ptr::copy_nonoverlapping(src, dst, count);
-    context.device.unmap_memory(memory)
-}
-
-fn copy_buffer(
-    context: &VulkanContext,
-    src_buffer: vk::Buffer,
-    dst_buffer: vk::Buffer,
-    size: vk::DeviceSize,
-) {
-    let alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_buffer_count(1)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_pool(context.command_pool);
-
-    let command_buffer = unsafe {
-        context
-            .device
-            .allocate_command_buffers(&alloc_info)
-            .map(|mut b| b.pop().unwrap())
-            .expect("Unable to allocate command buffer")
-    };
-
-    let begin_info =
-        vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-    unsafe {
-        context
-            .device
-            .begin_command_buffer(command_buffer, &begin_info)
-            .expect("Unable to begin command buffer")
-    }
-
-    let copy_region = vk::BufferCopy::builder()
-        .src_offset(0)
-        .dst_offset(0)
-        .size(size)
-        .build();
-
-    let regions = [copy_region];
-
-    unsafe {
-        context
-            .device
-            .cmd_copy_buffer(command_buffer, src_buffer, dst_buffer, &regions);
-        context
-            .device
-            .end_command_buffer(command_buffer)
-            .expect("Unable to end command buffer");
-    }
-
-    let command_buffers = &[command_buffer];
-
-    let submit_info = vk::SubmitInfo::builder()
-        .command_buffers(command_buffers)
-        .build();
-
-    let submit_info = &[submit_info];
-
-    unsafe {
-        context
-            .device
-            .queue_submit(context.graphics_queue, submit_info, vk::Fence::null())
-            .expect("Unable to submit to queue");
-        context
-            .device
-            .queue_wait_idle(context.graphics_queue)
-            .expect("Unable to wait idle");
-        context
-            .device
-            .free_command_buffers(context.command_pool, command_buffers)
-    }
 }
 
 // Semaphores

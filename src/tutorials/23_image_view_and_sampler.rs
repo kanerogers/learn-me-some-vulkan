@@ -141,6 +141,7 @@ struct HelloTriangleApplication {
     texture_image: vk::Image,
     texture_image_memory: vk::DeviceMemory,
     texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
 }
 
 impl HelloTriangleApplication {
@@ -168,6 +169,7 @@ impl HelloTriangleApplication {
         // Create texture image
         let (texture_image, texture_image_memory) = create_texture_image(&context);
         let texture_image_view = create_texture_image_view(&context, texture_image);
+        let texture_sampler = create_texture_sampler(&context);
 
         // Create vertex buffer
         let vertices = vec![
@@ -240,6 +242,7 @@ impl HelloTriangleApplication {
             texture_image_view,
             texture_image,
             texture_image_memory,
+            texture_sampler,
         }
     }
 
@@ -482,6 +485,33 @@ impl HelloTriangleApplication {
     }
 }
 
+fn create_texture_sampler(context: &VulkanContext) -> vk::Sampler {
+    let create_info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::LINEAR)
+        .min_filter(vk::Filter::LINEAR)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(true)
+        .max_anisotropy(16.0)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+        .mip_lod_bias(0.0)
+        .min_lod(0.0)
+        .max_lod(0.0)
+        .build();
+
+    unsafe {
+        context
+            .device
+            .create_sampler(&create_info, None)
+            .expect("Unable to create sampler")
+    }
+}
+
 fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory) {
     let img = image::io::Reader::open("./src/tutorials/images/texture.jpg")
         .expect("Unable to read image")
@@ -509,9 +539,10 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
     let tiling = vk::ImageTiling::OPTIMAL;
 
     let image_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
+    let usage = vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED;
 
     let (texture_image, texture_image_memory) =
-        context.create_image(extent, image_properties, format, tiling);
+        context.create_image(extent, image_properties, usage, format, tiling);
 
     let old_layout = vk::ImageLayout::UNDEFINED;
     let copy_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
@@ -521,11 +552,16 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
     context.copy_buffer_to_image(staging_buffer, texture_image, extent);
     context.transition_image_layout(texture_image, format, copy_layout, final_layout);
 
+    unsafe {
+        context.device.free_memory(staging_memory, None);
+        context.device.destroy_buffer(staging_buffer, None);
+    };
+
     (texture_image, texture_image_memory)
 }
 
 fn create_texture_image_view(context: &VulkanContext, texture_image: vk::Image) -> vk::ImageView {
-    todo!()
+    context.create_image_view(texture_image, vk::Format::R8G8B8A8_SRGB)
 }
 
 fn create_descriptor_sets(
@@ -623,6 +659,16 @@ impl Drop for HelloTriangleApplication {
             // self.swap_chain_image_views will now be empty
             // self.swap_chain_framebuffers will now be empty
             // WARNING: self.swap_chain is now invalid!
+            self.context
+                .device
+                .destroy_sampler(self.texture_sampler, None);
+            self.context
+                .device
+                .destroy_image_view(self.texture_image_view, None);
+            self.context.device.destroy_image(self.texture_image, None);
+            self.context
+                .device
+                .free_memory(self.texture_image_memory, None);
             self.context
                 .device
                 .destroy_descriptor_set_layout(self.descriptor_set_layout, None);

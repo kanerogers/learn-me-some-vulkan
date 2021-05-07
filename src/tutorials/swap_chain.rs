@@ -184,36 +184,7 @@ fn create_image_views(
 ) -> Vec<vk::ImageView> {
     swap_chain_images
         .iter()
-        .map(|image| {
-            let components = vk::ComponentMapping::builder()
-                .r(vk::ComponentSwizzle::IDENTITY)
-                .g(vk::ComponentSwizzle::IDENTITY)
-                .b(vk::ComponentSwizzle::IDENTITY)
-                .a(vk::ComponentSwizzle::IDENTITY)
-                .build();
-
-            let subresource_range = vk::ImageSubresourceRange::builder()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(1)
-                .build();
-
-            let create_info = vk::ImageViewCreateInfo::builder()
-                .image(*image)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(format)
-                .components(components)
-                .subresource_range(subresource_range);
-
-            unsafe {
-                context
-                    .device
-                    .create_image_view(&create_info, None)
-                    .expect("Unable to get image view")
-            }
-        })
+        .map(|image| context.create_image_view(*image, format))
         .collect::<Vec<_>>()
 }
 

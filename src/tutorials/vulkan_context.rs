@@ -111,6 +111,7 @@ impl VulkanContext {
         &self,
         extent: vk::Extent3D,
         properties: vk::MemoryPropertyFlags,
+        usage: vk::ImageUsageFlags,
         format: vk::Format,
         tiling: vk::ImageTiling,
     ) -> (vk::Image, vk::DeviceMemory) {
@@ -122,31 +123,55 @@ impl VulkanContext {
             .format(format)
             .tiling(tiling)
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .usage(vk::ImageUsageFlags::TRANSFER_DST)
+            .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .samples(vk::SampleCountFlags::TYPE_1);
-        let texture_image = unsafe {
+        let image = unsafe {
             self
                 .device
                 .create_image(&create_info, None)
                 .expect("Unable to create image")
         };
         let memory_requirements =
-            unsafe { self.device.get_image_memory_requirements(texture_image) };
+            unsafe { self.device.get_image_memory_requirements(image) };
         let memory_type_index =
             self.find_memory_type(memory_requirements.memory_type_bits, properties);
         let alloc_info = vk::MemoryAllocateInfo::builder()
             .allocation_size(memory_requirements.size)
             .memory_type_index(memory_type_index);
 
-        let texture_image_memory = unsafe {
+        let image_memory = unsafe {
             self
                 .device
                 .allocate_memory(&alloc_info, None)
                 .expect("Unable to allocate memory")
         };
+        unsafe { self.device.bind_image_memory(image, image_memory, 0).expect("Unable to bind memory")};
 
-        (texture_image, texture_image_memory)
+        (image, image_memory)
+    }
+
+    pub fn create_image_view(&self, image: vk::Image, format: vk::Format) -> vk::ImageView {
+        let subresource_range = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1)
+            .build();
+
+        let create_info = vk::ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(format)
+            .subresource_range(subresource_range);
+
+        unsafe {
+            self
+                .device
+                .create_image_view(&create_info, None)
+                .expect("Unable to create image view")
+        }
     }
 
     pub fn transition_image_layout(&self, image: vk::Image, _format: vk::Format, old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) {
@@ -176,6 +201,7 @@ impl VulkanContext {
         let image_memory_barriers = &[barrier];
 
         unsafe { self.device.cmd_pipeline_barrier(command_buffer, src_stage, dst_stage, dependency_flags, &[], &[], image_memory_barriers)};
+        self.end_single_time_commands(command_buffer);
     }
 
     pub fn copy_buffer_to_image(&self, src_buffer: vk::Buffer, dst_image: vk::Image, image_extent: vk::Extent3D) {
@@ -467,17 +493,19 @@ unsafe fn get_suitability(
     surface: vk::SurfaceKHR,
 ) -> (i8, QueueFamilyIndices, vk::PhysicalDevice) {
     let properties = instance.get_physical_device_properties(device);
+    let supported_features = instance.get_physical_device_features(device);
     let indices = QueueFamilyIndices::find_queue_families(instance, device, entry, surface);
     let has_extension_support = check_device_extension_support(instance, device);
     let swap_chain_adequate = check_swap_chain_adequate(instance, entry, surface, device);
     let has_graphics_family = indices.graphics_family.is_some();
+    let has_anisotropy = supported_features.sampler_anisotropy == 1;
 
     let mut suitability = 0;
     if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
         suitability -= 5;
     }
 
-    let suitable = has_extension_support && swap_chain_adequate && has_graphics_family;
+    let suitable = has_extension_support && swap_chain_adequate && has_graphics_family && has_anisotropy;
 
     if suitable {
         suitability -= 1
@@ -649,7 +677,7 @@ unsafe fn create_logical_device<'a>(
         queue_create_infos.push(present_queue_create_info);
     }
 
-    let physical_device_features = vk::PhysicalDeviceFeatures::builder();
+    let physical_device_features = vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
 
     let device_create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queue_create_infos[..])

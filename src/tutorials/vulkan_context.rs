@@ -109,17 +109,11 @@ impl VulkanContext {
     // Images
     pub fn create_image(
         &self,
-        width: u32,
-        height: u32,
+        extent: vk::Extent3D,
         properties: vk::MemoryPropertyFlags,
         format: vk::Format,
         tiling: vk::ImageTiling,
     ) -> (vk::Image, vk::DeviceMemory) {
-        let extent = vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        };
         let create_info = vk::ImageCreateInfo::builder()
             .image_type(vk::ImageType::TYPE_2D)
             .extent(extent)
@@ -155,29 +149,33 @@ impl VulkanContext {
         (texture_image, texture_image_memory)
     }
 
-    pub fn transition_image_layout(&self, image: vk::Image, format: vk::Format, old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) {
+    pub fn transition_image_layout(&self, image: vk::Image, _format: vk::Format, old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) {
         let command_buffer = self.begin_single_time_commands();
         let subresource_range = vk::ImageSubresourceRange::builder()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .base_mip_level(0)
             .level_count(1)
             .base_array_layer(0)
-            .layer_count(1);
+            .layer_count(1)
+            .build();
+
+        let (src_access_mask, dst_access_mask, src_stage, dst_stage) = get_stage(old_layout, new_layout);
 
         let barrier = vk::ImageMemoryBarrier::builder()
             .old_layout(old_layout)
             .new_layout(new_layout)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .subresource_range(subresource_range)
             .image(image)
             .build();
 
-        let src_stage_mask = todo!();
-        let dst_stage_mask = todo!();
         let dependency_flags = vk::DependencyFlags::empty();
         let image_memory_barriers = &[barrier];
 
-        unsafe { self.device.cmd_pipeline_barrier(command_buffer, src_stage_mask, dst_stage_mask, dependency_flags, &[], &[], image_memory_barriers)};
+        unsafe { self.device.cmd_pipeline_barrier(command_buffer, src_stage, dst_stage, dependency_flags, &[], &[], image_memory_barriers)};
     }
 
     pub fn copy_buffer_to_image(&self, src_buffer: vk::Buffer, dst_image: vk::Image, image_extent: vk::Extent3D) {
@@ -401,6 +399,16 @@ impl VulkanContext {
         }
 
     }
+}
+
+fn get_stage(old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) -> (vk::AccessFlags, vk::AccessFlags, vk::PipelineStageFlags, vk::PipelineStageFlags) {
+    if old_layout == vk::ImageLayout::UNDEFINED && new_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL {
+        return (vk::AccessFlags::empty(), vk::AccessFlags::TRANSFER_WRITE, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER)
+    } else if old_layout == vk::ImageLayout::TRANSFER_DST_OPTIMAL && new_layout == vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL {
+        return (vk::AccessFlags::TRANSFER_WRITE, vk::AccessFlags::SHADER_READ, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::FRAGMENT_SHADER)
+    }
+
+    panic!("Invalid layout transition!");
 }
 
 // Surface

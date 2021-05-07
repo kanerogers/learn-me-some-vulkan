@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 mod swap_chain;
 mod vulkan_context;
 use crate::vulkan_context::VulkanContext;
@@ -128,7 +125,7 @@ struct HelloTriangleApplication {
     images_in_flight: Vec<Option<vk::Fence>>,
     current_frame: usize,
     framebuffer_resized: bool,
-    vertices: Vec<Vertex>,
+    _vertices: Vec<Vertex>,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
     indices: Vec<u16>,
@@ -206,7 +203,6 @@ impl HelloTriangleApplication {
             pipeline,
             pipeline_layout,
             vertex_buffer,
-            vertices.len(),
             index_buffer,
             indices.len(),
             &descriptor_sets,
@@ -229,7 +225,7 @@ impl HelloTriangleApplication {
             images_in_flight,
             current_frame: 0,
             framebuffer_resized: false,
-            vertices,
+            _vertices: vertices,
             vertex_buffer,
             vertex_buffer_memory,
             indices,
@@ -406,7 +402,6 @@ impl HelloTriangleApplication {
             self.pipeline,
             self.pipeline_layout,
             self.vertex_buffer,
-            self.vertices.len(),
             self.index_buffer,
             self.indices.len(),
             &descriptor_sets,
@@ -442,7 +437,7 @@ impl HelloTriangleApplication {
         unsafe { self.context.copy_pointer_to_device_memory(&ubo, memory, 1) }
     }
 
-    pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn resized(&mut self, _new_size: PhysicalSize<u32>) {
         self.framebuffer_resized = true;
     }
 
@@ -496,6 +491,11 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
 
     let width = img.width();
     let height = img.height();
+    let extent = vk::Extent3D {
+        width,
+        height,
+        depth: 1,
+    };
     let buf = img.into_raw();
     let size = buf.len() * 8;
 
@@ -511,7 +511,15 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
     let image_properties = vk::MemoryPropertyFlags::DEVICE_LOCAL;
 
     let (texture_image, texture_image_memory) =
-        context.create_image(width, height, image_properties, format, tiling);
+        context.create_image(extent, image_properties, format, tiling);
+
+    let old_layout = vk::ImageLayout::UNDEFINED;
+    let copy_layout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
+    let final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+
+    context.transition_image_layout(texture_image, format, old_layout, copy_layout);
+    context.copy_buffer_to_image(staging_buffer, texture_image, extent);
+    context.transition_image_layout(texture_image, format, copy_layout, final_layout);
 
     (texture_image, texture_image_memory)
 }
@@ -779,7 +787,6 @@ fn create_command_buffers(
     graphics_pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     vertex_buffer: vk::Buffer,
-    vertex_count: usize,
     index_buffer: vk::Buffer,
     index_count: usize,
     descriptor_sets: &Vec<vk::DescriptorSet>,

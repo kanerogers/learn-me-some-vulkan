@@ -589,7 +589,11 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
 }
 
 fn create_texture_image_view(context: &VulkanContext, texture_image: vk::Image) -> vk::ImageView {
-    context.create_image_view(texture_image, vk::Format::R8G8B8A8_SRGB)
+    context.create_image_view(
+        texture_image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+    )
 }
 
 fn create_descriptor_sets(

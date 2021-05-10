@@ -161,6 +161,7 @@ struct HelloTriangleApplication {
     texture_sampler: vk::Sampler,
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
+    depth_image_view: vk::ImageView,
 }
 
 impl HelloTriangleApplication {
@@ -173,7 +174,7 @@ impl HelloTriangleApplication {
         let mut swap_chain = SwapChain::new(&context, window);
 
         // Create render pass, pipeline
-        let render_pass = create_render_pass(swap_chain.format, &context.device);
+        let render_pass = create_render_pass(swap_chain.format, &context);
         let descriptor_set_layout = create_descriptor_set_layout(&context);
         let (pipeline_layout, pipeline) = create_graphics_pipeline(
             &context.device,
@@ -189,7 +190,10 @@ impl HelloTriangleApplication {
         let (texture_image, texture_image_memory) = create_texture_image(&context);
         let texture_image_view = create_texture_image_view(&context, texture_image);
         let texture_sampler = create_texture_sampler(&context);
+
+        // Create depth image
         let (depth_image, depth_image_memory) = create_depth_image(&context, swap_chain.extent);
+        let depth_image_view = create_depth_image_view(&context, depth_image);
 
         // Create vertex buffer
         let vertices = vec![
@@ -271,6 +275,7 @@ impl HelloTriangleApplication {
             texture_sampler,
             depth_image,
             depth_image_memory,
+            depth_image_view,
         }
     }
 
@@ -396,7 +401,7 @@ impl HelloTriangleApplication {
         self.swap_chain = SwapChain::new(&self.context, window);
 
         // Build a render pass and pipeline
-        self.render_pass = create_render_pass(self.swap_chain.format, &self.context.device);
+        self.render_pass = create_render_pass(self.swap_chain.format, &self.context);
         let (pipeline_layout, pipeline) = create_graphics_pipeline(
             &self.context.device,
             self.swap_chain.extent,
@@ -595,7 +600,11 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
 }
 
 fn create_texture_image_view(context: &VulkanContext, texture_image: vk::Image) -> vk::ImageView {
-    context.create_image_view(texture_image, vk::Format::R8G8B8A8_SRGB)
+    context.create_image_view(
+        texture_image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+    )
 }
 
 fn create_depth_image(
@@ -613,6 +622,11 @@ fn create_depth_image(
     let tiling = vk::ImageTiling::OPTIMAL;
     let usage = vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
     context.create_image(extent, properties, usage, format, tiling)
+}
+
+fn create_depth_image_view(context: &VulkanContext, depth_image: vk::Image) -> vk::ImageView {
+    let format = find_depth_format(context);
+    context.create_image_view(depth_image, format, vk::ImageAspectFlags::DEPTH)
 }
 
 fn find_depth_format(context: &VulkanContext) -> vk::Format {
@@ -762,6 +776,9 @@ impl Drop for HelloTriangleApplication {
                 .free_memory(self.texture_image_memory, None);
 
             self.context.device.destroy_image(self.depth_image, None);
+            self.context
+                .device
+                .destroy_image_view(self.depth_image_view, None);
             self.context
                 .device
                 .free_memory(self.depth_image_memory, None);
@@ -1153,9 +1170,9 @@ fn create_shader_module(device: &Device, bytes: &[u8]) -> vk::ShaderModule {
     }
 }
 
-fn create_render_pass(format: vk::Format, device: &Device) -> vk::RenderPass {
+fn create_render_pass(colour_format: vk::Format, context: &VulkanContext) -> vk::RenderPass {
     let color_attachment = vk::AttachmentDescription::builder()
-        .format(format)
+        .format(colour_format)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
         .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
@@ -1165,8 +1182,6 @@ fn create_render_pass(format: vk::Format, device: &Device) -> vk::RenderPass {
         .samples(vk::SampleCountFlags::TYPE_1)
         .build();
 
-    let color_attachments = [color_attachment];
-
     let color_attachment_ref = vk::AttachmentReference::builder()
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
@@ -1174,9 +1189,29 @@ fn create_render_pass(format: vk::Format, device: &Device) -> vk::RenderPass {
 
     let color_attachment_refs = [color_attachment_ref];
 
+    let depth_format = find_depth_format(context);
+    let depth_stencil_attachment = vk::AttachmentDescription::builder()
+        .format(depth_format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .build();
+
+    let depth_stencil_attachment_ref = vk::AttachmentReference::builder()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        .build();
+
+    let attachments = [color_attachment, depth_stencil_attachment];
+
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(&color_attachment_refs)
+        .depth_stencil_attachment(&depth_stencil_attachment_ref)
         .build();
     let subpasses = [subpass];
 
@@ -1191,12 +1226,13 @@ fn create_render_pass(format: vk::Format, device: &Device) -> vk::RenderPass {
     let dependencies = [dependency];
 
     let render_pass_create_info = vk::RenderPassCreateInfo::builder()
-        .attachments(&color_attachments)
+        .attachments(&attachments)
         .subpasses(&subpasses)
         .dependencies(&dependencies);
 
     unsafe {
-        device
+        context
+            .device
             .create_render_pass(&render_pass_create_info, None)
             .unwrap()
     }

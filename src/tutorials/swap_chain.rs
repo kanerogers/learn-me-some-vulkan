@@ -184,7 +184,7 @@ fn create_image_views(
 ) -> Vec<vk::ImageView> {
     swap_chain_images
         .iter()
-        .map(|image| context.create_image_view(*image, format))
+        .map(|image| context.create_image_view(*image, format, vk::ImageAspectFlags::COLOR))
         .collect::<Vec<_>>()
 }
 

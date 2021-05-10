@@ -151,9 +151,9 @@ impl VulkanContext {
         (image, image_memory)
     }
 
-    pub fn create_image_view(&self, image: vk::Image, format: vk::Format) -> vk::ImageView {
+    pub fn create_image_view(&self, image: vk::Image, format: vk::Format, aspect_mask: vk::ImageAspectFlags) -> vk::ImageView {
         let subresource_range = vk::ImageSubresourceRange::builder()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .aspect_mask(aspect_mask)
             .base_mip_level(0)
             .level_count(1)
             .base_array_layer(0)

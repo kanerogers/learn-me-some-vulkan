@@ -79,13 +79,13 @@ struct UniformBufferObject {
 
 #[repr(C)]
 struct Vertex {
-    pos: Vector2<f32>,
+    pos: Vector3<f32>,
     colour: Vector3<f32>,
     texture_coordinate: Vector2<f32>,
 }
 
 impl Vertex {
-    fn new(pos: Vector2<f32>, colour: Vector3<f32>, texture_coordinate: Vector2<f32>) -> Self {
+    fn new(pos: Vector3<f32>, colour: Vector3<f32>, texture_coordinate: Vector2<f32>) -> Self {
         Self {
             pos,
             colour,
@@ -103,7 +103,7 @@ impl Vertex {
         let position_attribute = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(0)
-            .format(vk::Format::R32G32_SFLOAT)
+            .format(vk::Format::R32G32B32_SFLOAT)
             .offset(offset_of!(Vertex, pos) as u32)
             .build();
 
@@ -189,15 +189,19 @@ impl HelloTriangleApplication {
 
         // Create vertex buffer
         let vertices = vec![
-            Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
-            Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
-            Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
-            Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
+            Vertex::new(vec3(-0.5, -0.5, 0.0), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
+            Vertex::new(vec3(0.5, -0.5, 0.0), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
+            Vertex::new(vec3(0.5, 0.5, 0.0), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
+            Vertex::new(vec3(-0.5, 0.5, 0.0), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
+            Vertex::new(vec3(-0.5, -0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
+            Vertex::new(vec3(0.5, -0.5, -0.5), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
+            Vertex::new(vec3(0.5, 0.5, -0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
+            Vertex::new(vec3(-0.5, 0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
         ];
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
 
         // Index buffer
-        let indices = vec![0, 1, 2, 2, 3, 0];
+        let indices = vec![0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
         let (index_buffer, index_buffer_memory) = create_index_buffer(&context, &indices);
 
         let (uniform_buffers, uniform_buffers_memory) =
@@ -397,7 +401,8 @@ impl HelloTriangleApplication {
         self.pipeline_layout = pipeline_layout;
 
         // Create framebuffers for the swapchain
-        self.swap_chain
+        self.frame_buffers = self
+            .swap_chain
             .create_framebuffers(&self.context, self.render_pass);
 
         // UBOs
@@ -436,10 +441,11 @@ impl HelloTriangleApplication {
     pub fn update_uniform_buffer(&mut self, image_index: u32, start_time: Instant) {
         let current_time = Instant::now();
         let delta = current_time.duration_since(start_time).as_secs_f32();
-        let angle = Deg(90.0 * delta);
+        let angle = Deg(10.0 * delta);
         let model = Matrix4::from_angle_z(angle);
+        // let model = Matrix4::from_scale(1.0);
 
-        let eye = Point3::new(0.0, 0.0, 3.0);
+        let eye = Point3::new(2.0, 2.0, 2.0);
         let center = Point3::new(0.0, 0.0, 0.0);
         let up = vec3(0.0, 1.0, 0.0);
         let view = Matrix4::look_at_rh(eye, center, up);
@@ -448,8 +454,8 @@ impl HelloTriangleApplication {
         let aspect = self.swap_chain.extent.width / self.swap_chain.extent.height;
         let near = 0.1;
         let far = 10.0;
-        let mut projection = perspective(fovy, aspect as f32, near, far);
-        projection[1][1] *= -1.0;
+        let projection = perspective(fovy, aspect as f32, near, far);
+        // projection[1][1] *= -1.0;
 
         let ubo = UniformBufferObject {
             model,
@@ -462,6 +468,7 @@ impl HelloTriangleApplication {
     }
 
     pub fn resized(&mut self, _new_size: PhysicalSize<u32>) {
+        // println!("Resized! New size: {:?}", _new_size);
         self.framebuffer_resized = true;
     }
 
@@ -534,7 +541,7 @@ fn create_texture_sampler(context: &VulkanContext) -> vk::Sampler {
 }
 
 fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory) {
-    let img = image::io::Reader::open("./src/tutorials/images/texture.jpg")
+    let img = image::io::Reader::open("./src/tutorials/images/malaysia.jpg")
         .expect("Unable to read image")
         .decode()
         .expect("Unable to read image")
@@ -889,11 +896,13 @@ fn create_command_buffers(
 ) -> Vec<vk::CommandBuffer> {
     let device = &context.device;
     let command_pool = &context.command_pool;
+    let command_buffer_count = swap_chain_framebuffers.len() as u32;
+    assert!(command_buffer_count > 0);
 
     let alloc_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(*command_pool)
         .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(swap_chain_framebuffers.len() as u32);
+        .command_buffer_count(command_buffer_count);
 
     let command_buffers = unsafe {
         device
@@ -1033,7 +1042,7 @@ fn create_graphics_pipeline(
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.0)
         .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .front_face(vk::FrontFace::CLOCKWISE)
         .depth_bias_enable(false);
 
     let multisampling_create_info = vk::PipelineMultisampleStateCreateInfo::builder()

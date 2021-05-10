@@ -35,11 +35,15 @@ impl SwapChain {
         &mut self,
         context: &VulkanContext,
         render_pass: vk::RenderPass,
+        depth_image_view: Option<vk::ImageView>,
     ) -> Vec<vk::Framebuffer> {
         self.image_views
             .iter()
-            .map(|v| {
-                let attachments = [*v]; //.. really?
+            .map(|swap_chain_image_view| {
+                let mut attachments = vec![*swap_chain_image_view];
+                if let Some(view) = depth_image_view {
+                    attachments.push(view)
+                };
                 let create_info = vk::FramebufferCreateInfo::builder()
                     .render_pass(render_pass)
                     .attachments(&attachments)

@@ -180,7 +180,7 @@ impl HelloTriangleApplication {
         );
 
         // Create swapchain framebuffers
-        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass);
+        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass, None);
 
         // Create texture image
         let (texture_image, texture_image_memory) = create_texture_image(&context);
@@ -401,9 +401,9 @@ impl HelloTriangleApplication {
         self.pipeline_layout = pipeline_layout;
 
         // Create framebuffers for the swapchain
-        self.frame_buffers = self
-            .swap_chain
-            .create_framebuffers(&self.context, self.render_pass);
+        self.frame_buffers =
+            self.swap_chain
+                .create_framebuffers(&self.context, self.render_pass, None);
 
         // UBOs
         let (uniform_buffers, uniform_buffers_memory) =

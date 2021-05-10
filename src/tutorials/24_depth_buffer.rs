@@ -183,9 +183,6 @@ impl HelloTriangleApplication {
             &[descriptor_set_layout],
         );
 
-        // Create swapchain framebuffers
-        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass);
-
         // Create texture image
         let (texture_image, texture_image_memory) = create_texture_image(&context);
         let texture_image_view = create_texture_image_view(&context, texture_image);
@@ -194,6 +191,10 @@ impl HelloTriangleApplication {
         // Create depth image
         let (depth_image, depth_image_memory) = create_depth_image(&context, swap_chain.extent);
         let depth_image_view = create_depth_image_view(&context, depth_image);
+
+        // Create swapchain framebuffers
+        let frame_buffers =
+            swap_chain.create_framebuffers(&context, render_pass, Some(depth_image_view));
 
         // Create vertex buffer
         let vertices = vec![
@@ -412,9 +413,11 @@ impl HelloTriangleApplication {
         self.pipeline_layout = pipeline_layout;
 
         // Create framebuffers for the swapchain
-        self.frame_buffers = self
-            .swap_chain
-            .create_framebuffers(&self.context, self.render_pass);
+        self.frame_buffers = self.swap_chain.create_framebuffers(
+            &self.context,
+            self.render_pass,
+            Some(self.depth_image_view),
+        );
 
         // UBOs
         let (uniform_buffers, uniform_buffers_memory) =

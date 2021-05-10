@@ -163,7 +163,7 @@ impl HelloTriangleApplication {
         );
 
         // Create swapchain framebuffers
-        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass);
+        let frame_buffers = swap_chain.create_framebuffers(&context, render_pass, None);
 
         // Create vertex buffer
         let vertices = vec![
@@ -371,7 +371,7 @@ impl HelloTriangleApplication {
 
         // Create framebuffers for the swapchain
         self.swap_chain
-            .create_framebuffers(&self.context, self.render_pass);
+            .create_framebuffers(&self.context, self.render_pass, None);
 
         // UBOs
         let (uniform_buffers, uniform_buffers_memory) =

@@ -115,3 +115,7 @@ path = "src/tutorials/22_descriptor_pools_and_sets.rs"
 [[bin]]
 name = "23"
 path = "src/tutorials/23_image_view_and_sampler.rs"
+
+[[bin]]
+name = "24"
+path = "src/tutorials/24_depth_buffer.rs"

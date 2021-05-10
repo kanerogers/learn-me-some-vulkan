@@ -425,6 +425,16 @@ impl VulkanContext {
         }
 
     }
+
+    pub fn find_supported_format(&self, candidates: Vec<vk::Format>, tiling: vk::ImageTiling, features: vk::FormatFeatureFlags) -> vk::Format {
+        for format in candidates {
+            let props = unsafe { self.instance.get_physical_device_format_properties(self.physical_device, format) };
+            if tiling == vk::ImageTiling::LINEAR && props.linear_tiling_features.contains(features) { return format };
+            if tiling == vk::ImageTiling::OPTIMAL && props.optimal_tiling_features.contains(features) { return format };
+        }
+
+        panic!("Unable to find supported format")
+    }
 }
 
 fn get_stage(old_layout: vk::ImageLayout, new_layout: vk::ImageLayout) -> (vk::AccessFlags, vk::AccessFlags, vk::PipelineStageFlags, vk::PipelineStageFlags) {

@@ -11,7 +11,7 @@ use byte_slice_cast::AsSliceOf;
 use cgmath::{perspective, vec2, vec3, Deg, Matrix4, Point3, Vector2, Vector3};
 use itertools::izip;
 use memoffset::offset_of;
-use std::{ffi::CString, mem::size_of, time::Instant};
+use std::{ffi::CString, fs::File, mem::size_of, path::Path, time::Instant};
 use swap_chain::SwapChain;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
@@ -145,7 +145,7 @@ struct HelloTriangleApplication {
     _vertices: Vec<Vertex>,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     swap_chain: SwapChain,
@@ -196,21 +196,13 @@ impl HelloTriangleApplication {
         let frame_buffers =
             swap_chain.create_framebuffers(&context, render_pass, Some(depth_image_view));
 
+        let model_path = Path::new("./src/tutorials/models/viking_room.obj");
+        let (vertices, indices) = load_model(&model_path);
+
         // Create vertex buffer
-        let vertices = vec![
-            Vertex::new(vec3(-0.5, -0.5, 0.0), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
-            Vertex::new(vec3(0.5, -0.5, 0.0), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
-            Vertex::new(vec3(0.5, 0.5, 0.0), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
-            Vertex::new(vec3(-0.5, 0.5, 0.0), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
-            Vertex::new(vec3(-0.5, -0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 0.0)),
-            Vertex::new(vec3(0.5, -0.5, -0.5), vec3(0.0, 1.0, 1.0), vec2(1.0, 0.0)),
-            Vertex::new(vec3(0.5, 0.5, -0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
-            Vertex::new(vec3(-0.5, 0.5, -0.5), vec3(1.0, 0.0, 1.0), vec2(0.0, 1.0)),
-        ];
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(&context, &vertices);
 
         // Index buffer
-        let indices = vec![0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
         let (index_buffer, index_buffer_memory) = create_index_buffer(&context, &indices);
 
         let (uniform_buffers, uniform_buffers_memory) =
@@ -468,15 +460,15 @@ impl HelloTriangleApplication {
 
         let eye = Point3::new(2.0, 2.0, 2.0);
         let center = Point3::new(0.0, 0.0, 0.0);
-        let up = vec3(0.0, 1.0, 0.0);
+        let up = vec3(0.0, 0.0, 1.0);
         let view = Matrix4::look_at_rh(eye, center, up);
 
         let fovy = Deg(45.0);
         let aspect = self.swap_chain.extent.width / self.swap_chain.extent.height;
         let near = 0.1;
         let far = 10.0;
-        let projection = perspective(fovy, aspect as f32, near, far);
-        // projection[1][1] *= -1.0;
+        let mut projection = perspective(fovy, aspect as f32, near, far);
+        projection[1][1] *= -1.0;
 
         let ubo = UniformBufferObject {
             model,
@@ -542,6 +534,37 @@ impl HelloTriangleApplication {
     }
 }
 
+fn load_model(file_name: &Path) -> (Vec<Vertex>, Vec<u32>) {
+    println!("Loading model..");
+    let (models, materials) = tobj::load_obj(file_name, true).expect("Unable to load object!");
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for model in models {
+        for index in model.mesh.indices {
+            indices.push(indices.len() as u32);
+            let i = index as usize;
+
+            let v1 = model.mesh.positions[i * 3];
+            let v2 = model.mesh.positions[i * 3 + 1];
+            let v3 = model.mesh.positions[i * 3 + 2];
+            let pos = vec3(v1, v2, v3);
+
+            let t1 = model.mesh.texcoords[i * 2];
+            let t2 = model.mesh.texcoords[i * 2 + 1];
+            let texture_coordinate = vec2(t1, 1.0 - t2);
+
+            let colour = vec3(1.0, 1.0, 1.0);
+            let vertex = Vertex::new(pos, colour, texture_coordinate);
+            vertices.push(vertex)
+        }
+    }
+
+    println!("..done!");
+
+    (vertices, indices)
+}
+
 fn create_texture_sampler(context: &VulkanContext) -> vk::Sampler {
     let create_info = vk::SamplerCreateInfo::builder()
         .mag_filter(vk::Filter::LINEAR)
@@ -570,12 +593,13 @@ fn create_texture_sampler(context: &VulkanContext) -> vk::Sampler {
 }
 
 fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory) {
-    let img = image::io::Reader::open("./src/tutorials/images/malaysia.jpg")
+    let img = image::io::Reader::open("./src/tutorials/images/viking_room.png")
         .expect("Unable to read image")
         .decode()
         .expect("Unable to read image")
         .to_rgba8();
 
+    // Get the image's properties
     let width = img.width();
     let height = img.height();
     let extent = vk::Extent3D {
@@ -583,6 +607,7 @@ fn create_texture_image(context: &VulkanContext) -> (vk::Image, vk::DeviceMemory
         height,
         depth: 1,
     };
+
     let buf = img.into_raw();
     let size = buf.len() * 8;
 
@@ -688,18 +713,18 @@ fn create_descriptor_sets(
             .offset(0)
             .build();
 
-        let image_info = vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(texture_image_view)
-            .sampler(texture_sampler)
-            .build();
-
         let ubo_descriptor_write = vk::WriteDescriptorSet::builder()
             .dst_set(*descriptor_set)
             .dst_binding(0)
             .dst_array_element(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .buffer_info(&[buffer_info])
+            .build();
+
+        let image_info = vk::DescriptorImageInfo::builder()
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .image_view(texture_image_view)
+            .sampler(texture_sampler)
             .build();
 
         let sampler_descriptor_write = vk::WriteDescriptorSet::builder()
@@ -824,6 +849,7 @@ impl Drop for HelloTriangleApplication {
 
 pub fn init_window(event_loop: &EventLoop<()>) -> Window {
     WindowBuilder::new()
+        .with_visible(false)
         .with_title("Hello, Triangle")
         .with_inner_size(LogicalSize::new(600, 600))
         .build(event_loop)
@@ -834,6 +860,7 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = init_window(&event_loop);
     let app = HelloTriangleApplication::new(&window);
+    window.set_visible(true);
     main_loop(event_loop, window, app);
 }
 
@@ -880,7 +907,7 @@ fn create_vertex_buffer(
 
 fn create_index_buffer(
     context: &VulkanContext,
-    indices: &Vec<u16>,
+    indices: &Vec<u32>,
 ) -> (vk::Buffer, vk::DeviceMemory) {
     context.create_buffer_from_data(vk::BufferUsageFlags::INDEX_BUFFER, indices)
 }
@@ -1029,7 +1056,7 @@ fn create_command_buffers(
                 graphics_pipeline,
             );
             device.cmd_bind_vertex_buffers(*command_buffer, 0, &vertex_buffers, &offsets);
-            device.cmd_bind_index_buffer(*command_buffer, index_buffer, 0, vk::IndexType::UINT16);
+            device.cmd_bind_index_buffer(*command_buffer, index_buffer, 0, vk::IndexType::UINT32);
             device.cmd_bind_descriptor_sets(
                 *command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -1115,8 +1142,8 @@ fn create_graphics_pipeline(
         .rasterizer_discard_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.0)
-        .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::CLOCKWISE)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
         .depth_bias_enable(false);
 
     let multisampling_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -1154,6 +1181,8 @@ fn create_graphics_pipeline(
         .depth_compare_op(vk::CompareOp::LESS)
         .depth_bounds_test_enable(false)
         .stencil_test_enable(false)
+        .min_depth_bounds(0.0)
+        .max_depth_bounds(1.0)
         .build();
 
     let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
@@ -1245,8 +1274,8 @@ fn create_render_pass(colour_format: vk::Format, context: &VulkanContext) -> vk:
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
         .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .src_access_mask(vk::AccessFlags::empty())
         .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::empty())
         .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
         .build();
     let dependencies = [dependency];

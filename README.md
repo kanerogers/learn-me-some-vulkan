@@ -24,18 +24,16 @@ Vulkan? What is Vulkan? How do I image? What is image?
 | 15             | [15_rendering_and_presentation.rs](./src/tutorials/15_rendering_and_presentation.rs) | [Link](https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Rendering_and_presentation) |                                                              |✔️|
 | 16             | [16_swap_chain_recreation.rs](./src/tutorials/16_swap_chain_recreation.rs) | [Link](https://vulkan-tutorial.com/Drawing_a_triangle/Swap_chain_recreation) |                                                              |️✔️|
 | 17             | [17_vertex_input.rs](./src/tutorials/17_vertex_input.rs)     | [Link](https://vulkan-tutorial.com/Vertex_buffers/Vertex_input_description) | The Validation Layer will complain. This example may crash on Windows. ️|✔️|
-| 18             | [18_vertex_buffer.rs](./src/tutorials/18_vertex_buffer.rs)   | [Link](https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation) |                                                              | ❌ |
-| 19             | [19_staging_buffer.rs](./src/tutorials/19_staging_buffer.rs) | [Link](https://vulkan-tutorial.com/Vertex_buffers/Staging_buffer) |                                                              | ❌ |
-| 20             | [20_index_buffer.rs](./src/tutorials/20_index_buffer.rs)     | [Link](https://vulkan-tutorial.com/Vertex_buffers/Index_buffer) |                                                              | ❌ |
-| 21             | [21_descriptor_layout.rs](./src/tutorials/21_descriptor_layout.rs) | [Link](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_layout_and_buffer) | The Validation Layer will complain.                          | ❌ |
-| 22             | [22_descriptor_sets.rs](./src/tutorials/22_descriptor_sets.rs) | [Link](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_pool_and_sets) |                                                              | ❌ |
-| 23             | [23_texture_image.rs](./src/tutorials/23_texture_image.rs)   | [Link](https://vulkan-tutorial.com/Texture_mapping/Images)   |                                                              | ❌ |
-| 24             | [24_sampler.rs](./src/tutorials/24_sampler.rs)               | [Link](https://vulkan-tutorial.com/Texture_mapping/Image_view_and_sampler) |                                                              | ❌ |
-| 25             | [25_texture_mapping.rs](./src/tutorials/25_texture_mapping.rs) | [Link](https://vulkan-tutorial.com/Texture_mapping/Combined_image_sampler) |                                                              | ❌ |
-| 26             | [26_depth_buffering.rs](./src/tutorials/26_depth_buffering.rs) | [Link](https://vulkan-tutorial.com/Depth_buffering)          |                                                              | ❌ |
-| 27             | [27_model_loading.rs](./src/tutorials/27_model_loading.rs)   | [Link](https://vulkan-tutorial.com/Loading_models)           | Test this example in release mode.                           | ❌ |
-| 28             | [28_mipmapping.rs](./src/tutorials/28_mipmapping.rs)         | [Link](https://vulkan-tutorial.com/Generating_Mipmaps)       | Test this example in release mode.                           | ❌ |
-| 29             | [29_multisampling.rs](./src/tutorials/29_multisampling.rs)   | [Link](https://vulkan-tutorial.com/Multisampling)            | Test this example in release mode.                           | ❌ |
+| 18             | [18_vertex_buffer.rs](./src/tutorials/18_vertex_buffer.rs)   | [Link](https://vulkan-tutorial.com/Vertex_buffers/Vertex_buffer_creation) |                                                              | ✔️ |
+| 19             | [19_staging_buffer.rs](./src/tutorials/19_staging_buffer.rs) | [Link](https://vulkan-tutorial.com/Vertex_buffers/Staging_buffer) |                                                              |✔️|
+| 20             | [20_index_buffer.rs](./src/tutorials/20_index_buffer.rs)     | [Link](https://vulkan-tutorial.com/Vertex_buffers/Index_buffer) |                                                              |✔️|
+| 21             | [21_descriptor_layout.rs](./src/tutorials/21_descriptor_layout.rs) | [Link](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_layout_and_buffer) | The Validation Layer will complain.                          |✔️|
+| 22             | [22_descriptor_pools_and_sets.rs](./src/tutorials/22_descriptor_pools_and_sets.rs) | [Link](https://vulkan-tutorial.com/Uniform_buffers/Descriptor_pool_and_sets) |                                                              |✔️|
+| 23             | [23_image_view_and_sampler.rs](./src/tutorials/23_texture_image.rs)   | [Link](https://vulkan-tutorial.com/Texture_mapping/Images)   |                                                              |✔️|
+| 26             | [24_depth_buffer.rs](./src/tutorials/23_depth_buffer.rs) | [Link](https://vulkan-tutorial.com/Depth_buffering)          |                                                              |✔️|
+| 27             | [25_loading_models.rs](./src/tutorials/25_loading_models.rs)   | [Link](https://vulkan-tutorial.com/Loading_models)           | Test this example in release mode.                           |✔️|
+| 28             | [26_mipmapping.rs](./src/tutorials/28_mipmapping.rs)         | [Link](https://vulkan-tutorial.com/Generating_Mipmaps)       | Test this example in release mode.                           | ❌ |
+| 29             | [27_multisampling.rs](./src/tutorials/29_multisampling.rs)   | [Link](https://vulkan-tutorial.com/Multisampling)            | Test this example in release mode.                           | ❌ |
 
 
 ## References

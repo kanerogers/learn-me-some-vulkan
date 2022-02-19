@@ -13,7 +13,8 @@ image = "0.23"
 itertools = "0.10.0"
 memoffset = "0.5.1"
 num = "0.2"
-tobj = "0.1.10"
+# tobj = "2.0"
+tobj = {path = "../tobj"}
 winit = "0.24.0"
 
 [build-dependencies]
@@ -119,3 +120,7 @@ path = "src/tutorials/23_image_view_and_sampler.rs"
 [[bin]]
 name = "24"
 path = "src/tutorials/24_depth_buffer.rs"
+
+[[bin]]
+name = "25"
+path = "src/tutorials/25_loading_models.rs"
